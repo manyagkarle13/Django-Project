@@ -1,0 +1,34 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}MCE Syllabus Maker{% endblock %}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'Roboto', Arial, sans-serif; background: #f4f6f8; }
+    .home-link { padding: 10px 15px; text-decoration: none; color: #1976d2; font-weight: 600; }
+    .home-link:hover { color: #1565c0; }
+  </style>
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+  <!-- Home link based on user role -->
+  {% if user.is_authenticated %}
+    {% if user.role == 'dean' %}
+      <a href="{% url 'academics:dean_dashboard' %}" class="home-link">← Back to Dean Dashboard</a>
+    {% elif user.role == 'hod' %}
+      <a href="{% url 'hod:dashboard_redirect' %}" class="home-link">← Back to HOD Dashboard</a>
+    {% elif user.role == 'faculty' %}
+      <a href="{% url 'facultymodule:faculty_dashboard' %}" class="home-link">← Back to Faculty Dashboard</a>
+    {% endif %}
+  {% endif %}
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

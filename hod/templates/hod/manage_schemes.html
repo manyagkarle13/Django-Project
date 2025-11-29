@@ -1,0 +1,332 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Scheme PDFs{% endblock %}
+
+{% block content %}
+
+<style>
+/* layout fixes to avoid overlapping buttons and clipped titles */
+.table td, .table th {
+    vertical-align: middle !important;
+    padding-top: 10px;
+    padding-bottom: 10px;
+}
+
+/* Clip long titles instead of wrapping into layout */
+.text-clip {
+    display: block;
+    max-width: 520px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* small dividing line */
+.small-divider {
+    border: 0;
+    border-top: 1px solid #e9e9e9;
+    margin: 0.45rem 0;
+}
+
+/* section titles */
+.section-title {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin-top: 25px;
+    margin-bottom: 12px;
+}
+
+/* ---- Button styles to match review_history ---- */
+.btn {
+    padding: 10px 14px;
+    border-radius: 6px;
+    border: 0;
+    cursor: pointer;
+    font-weight: 600;
+    text-decoration: none;
+    display: inline-block;
+}
+
+.btn-sm { padding: 6px 10px; font-size: 0.85rem; }
+.btn-secondary { background: #6c757d; color: #fff; }
+.btn-outline-primary { background: #f5f7fa; color: #0a3b66; border: 1px solid #d6e0ef; }
+
+.link-action {
+  color: #0a3b66;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(10,59,102,0.12);
+  padding-bottom: 2px;
+  margin: 0 6px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.link-action:hover {
+  border-bottom-color: currentColor;
+  color: #092b50;
+  text-decoration: none;
+}
+
+.link-action-danger {
+  color: #d32f2f;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(211, 47, 47, 0.12);
+  padding-bottom: 2px;
+  margin: 0 6px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.link-action-danger:hover {
+  border-bottom-color: currentColor;
+  color: #b71c1c;
+  text-decoration: none;
+}
+
+.separator { color: #999; margin: 0 6px; }
+
+.filter-card {
+  background: #ffffff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.filter-card form {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.filter-card label {
+  font-weight: 600;
+  color: #333;
+  margin: 0;
+}
+
+.filter-card input,
+.filter-card select {
+  padding: 8px 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.filter-card button {
+  padding: 8px 16px;
+  background: #6c757d;
+  color: white;
+  border: 0;
+  border-radius: 4px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.filter-card button:hover {
+  background: #5a6268;
+}
+
+.recycle-bin-section {
+  margin-top: 40px;
+  padding-top: 30px;
+  border-top: 2px solid #e9e9e9;
+}
+
+.recycle-bin-empty {
+  text-align: center;
+  padding: 30px;
+  background: #f5f5f5;
+  border: 1px dashed #ccc;
+  border-radius: 6px;
+  color: #999;
+  font-size: 0.95rem;
+}
+
+/* keep responsive */
+@media (max-width: 768px) {
+    .text-clip { max-width: 240px; }
+    .filter-card form { flex-direction: column; align-items: flex-start; }
+}
+</style>
+
+<div class="container" style="max-width:1100px;margin:30px auto;">
+  
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+    <h2 style="margin: 0;">Scheme PDFs — <strong>{{ branch.name }}</strong></h2>
+    <a href="{% url 'hod:dashboard_self' branch.pk %}" class="btn btn-secondary">← Back to Dashboard</a>
+  </div>
+
+  <!-- Filter form -->
+  <div class="filter-card">
+    <form method="get">
+      <label>Year:</label>
+      <input type="text" name="year" placeholder="e.g., 2024" value="{{ request.GET.year }}" style="width: 120px;">
+      
+      <label>Semester:</label>
+      <select name="semester" style="width: 100px;">
+        <option value="">-- All --</option>
+        {% for s in semesters %}
+          <option value="{{ s }}"{% if request.GET.semester == s|stringformat:"s" %} selected{% endif %}>
+            Sem {{ s }}
+          </option>
+        {% endfor %}
+      </select>
+      
+      <button type="submit">Filter</button>
+    </form>
+  </div>
+
+  <!-- Active Schemes table -->
+  <h3 class="section-title">📄 Generated Schemes</h3>
+  
+  {% if schemes %}
+    <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+      <thead>
+        <tr style="background:#f4f6f8;">
+          <th style="border:1px solid #ddd;padding:10px;text-align:left;">Created Date</th>
+          <th style="border:1px solid #ddd;padding:10px;text-align:left;">Year</th>
+          <th style="border:1px solid #ddd;padding:10px;text-align:left;">Sem</th>
+          <th style="border:1px solid #ddd;padding:10px;text-align:left;">Title</th>
+          <th style="border:1px solid #ddd;padding:10px;text-align:left;">Created By</th>
+          <th style="border:1px solid #ddd;padding:10px;text-align:center;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in schemes %}
+        <tr>
+          <td style="border:1px solid #ddd;padding:10px;">
+            <small>{{ s.created_at|date:"d M Y, H:i" }}</small>
+          </td>
+          <td style="border:1px solid #ddd;padding:10px;">{{ s.year }}</td>
+          <td style="border:1px solid #ddd;padding:10px;"><strong>{{ s.semester }}</strong></td>
+          <td style="border:1px solid #ddd;padding:10px;">
+            <span class="text-clip" title="{{ s.title }}">{{ s.title }}</span>
+          </td>
+          <td style="border:1px solid #ddd;padding:10px;">
+            <small>{{ s.created_by.get_full_name|default:s.created_by.username }}</small>
+          </td>
+          <td style="border:1px solid #ddd;padding:10px;text-align:center;">
+            <!-- View button (opens in browser) -->
+            <a class="link-action" href="{% url 'hod:view_scheme' s.pk %}" title="View PDF in browser" target="_blank">
+              <i class="fas fa-eye"></i> View
+            </a>
+            <span class="separator">|</span>
+            
+            <!-- Download button -->
+            <a class="link-action" href="{% url 'hod:download_scheme' s.pk %}" title="Download PDF file">
+              <i class="fas fa-download"></i> Download
+            </a>
+            <span class="separator">|</span>
+            
+            <!-- Edit button -->
+            <a class="link-action" href="{% url 'hod:edit_scheme' s.pk %}" title="Edit this scheme">
+              <i class="fas fa-edit"></i> Edit
+            </a>
+            <span class="separator">|</span>
+            
+            <!-- Delete to Recycle Bin button -->
+            <form method="post" action="{% url 'hod:trash_scheme' s.pk %}" style="display:inline;">
+              {% csrf_token %}
+              <button type="submit" class="link-action-danger" onclick="return confirm('Move to recycle bin?');">
+                <i class="fas fa-trash"></i> Delete
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div style="text-align:center;padding:40px;background:#f9f9f9;border:1px solid #ddd;border-radius:6px;color:#666;">
+      <p style="margin:0;"><i class="fas fa-info-circle"></i> No saved scheme PDFs yet.</p>
+      <p style="margin:10px 0 0 0;font-size:0.9rem;">
+        <a href="{% url 'hod:dashboard_self' branch.pk %}" style="color:#0a3b66;text-decoration:none;font-weight:600;">Go back to dashboard to generate one.</a>
+      </p>
+    </div>
+  {% endif %}
+
+  <!-- Summary -->
+  <div style="margin-top:20px;padding:12px 16px;background:#f9f9f9;border:1px solid #ddd;border-radius:6px;font-size:0.9rem;color:#666;">
+    <strong>Active Schemes:</strong> {{ schemes|length }} | 
+    <strong>Branch:</strong> {{ branch.name }}
+  </div>
+
+  <!-- Recycle Bin Section -->
+  {% if deleted_schemes %}
+  <div class="recycle-bin-section">
+    <h3 class="section-title">🗑️ Recycle Bin</h3>
+    
+    <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+      <thead>
+        <tr style="background:#fff3cd;">
+          <th style="border:1px solid #ddd;padding:10px;text-align:left;">Created Date</th>
+          <th style="border:1px solid #ddd;padding:10px;text-align:left;">Year</th>
+          <th style="border:1px solid #ddd;padding:10px;text-align:left;">Sem</th>
+          <th style="border:1px solid #ddd;padding:10px;text-align:left;">Title</th>
+          <th style="border:1px solid #ddd;padding:10px;text-align:left;">Deleted On</th>
+          <th style="border:1px solid #ddd;padding:10px;text-align:center;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in deleted_schemes %}
+        <tr style="background:#fffaf0;">
+          <td style="border:1px solid #ddd;padding:10px;">
+            <small>{{ s.created_at|date:"d M Y, H:i" }}</small>
+          </td>
+          <td style="border:1px solid #ddd;padding:10px;">{{ s.year }}</td>
+          <td style="border:1px solid #ddd;padding:10px;"><strong>{{ s.semester }}</strong></td>
+          <td style="border:1px solid #ddd;padding:10px;">
+            <span class="text-clip" title="{{ s.title }}" style="opacity:0.7;">{{ s.title }}</span>
+          </td>
+          <td style="border:1px solid #ddd;padding:10px;">
+            <small>{{ s.deleted_at|date:"d M Y, H:i"|default:"N/A" }}</small>
+          </td>
+          <td style="border:1px solid #ddd;padding:10px;text-align:center;">
+            <!-- Restore button -->
+            <form method="post" action="{% url 'hod:restore_scheme' s.pk %}" style="display:inline;">
+              {% csrf_token %}
+              <button type="submit" class="link-action" onclick="return confirm('Restore this scheme?');">
+                <i class="fas fa-undo"></i> Restore
+              </button>
+            </form>
+            <span class="separator">|</span>
+            
+            <!-- Permanent Delete button -->
+            <form method="post" action="{% url 'hod:permanent_delete_scheme' s.pk %}" style="display:inline;">
+              {% csrf_token %}
+              <button type="submit" class="link-action-danger" onclick="return confirm('Permanently delete this scheme? This cannot be undone.');">
+                <i class="fas fa-times"></i> Delete Forever
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div style="margin-top:10px;padding:8px 12px;background:#fff3cd;border:1px solid #ffc107;border-radius:4px;font-size:0.85rem;color:#856404;">
+      <strong>Recycle Bin:</strong> {{ deleted_schemes|length }} deleted scheme(s)
+    </div>
+  </div>
+  {% else %}
+    <div class="recycle-bin-section">
+      <h3 class="section-title">🗑️ Recycle Bin</h3>
+      <div class="recycle-bin-empty">
+        <i class="fas fa-check-circle"></i> Recycle bin is empty
+      </div>
+    </div>
+  {% endif %}
+
+</div>
+
+{% endblock %}

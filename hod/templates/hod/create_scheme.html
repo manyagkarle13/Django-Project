@@ -1,0 +1,639 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="alert alert-success" style="color: green; text-align: center;">
+    {% for message in messages %}
+        {{ message }}
+    {% endfor %}
+</div>
+<div style="max-width:1200px; margin:30px auto; background:#fff; padding:40px; border-radius:12px; box-shadow:0 4px 12px rgba(0,0,0,.12);">
+  <h1 style="margin-bottom:30px; color:#333; font-size:28px;">Create Scheme for Semester</h1>
+  <form method="post" id="scheme-form">
+    {% csrf_token %}
+    <div style="overflow-x:auto; margin-bottom:30px;">
+      <table id="scheme-table" style="width:100%; border-collapse:collapse; font-size:14px;">
+        <thead>
+          <tr style="background:#f8f9fa; border-bottom:2px solid #dee2e6;">
+            <th style="padding:12px; text-align:center; font-weight:600;">Sl. No</th>
+            <th style="padding:12px; text-align:left; font-weight:600;">Course Category</th>
+            <th style="padding:12px; text-align:left; font-weight:600;">Course Code</th>
+            <th style="padding:12px; text-align:left; font-weight:600;">Course Title</th>
+            <th colspan="4" style="padding:12px; text-align:center; font-weight:600;">Teaching Hours/Week</th>
+            <th colspan="3" style="padding:12px; text-align:center; font-weight:600;">Exam Marks</th>
+            <th style="padding:12px; text-align:center; font-weight:600;">Credits</th>
+            <th style="padding:12px; text-align:center; font-weight:600;">Assign Faculty</th>
+          </tr>
+          <tr style="background:#f8f9fa; border-bottom:1px solid #dee2e6;">
+            <th></th>
+            <th></th>
+            <th></th>
+            <th></th>
+            <th style="padding:12px; text-align:center; font-weight:600; width:50px;">L</th>
+            <th style="padding:12px; text-align:center; font-weight:600; width:50px;">T</th>
+            <th style="padding:12px; text-align:center; font-weight:600; width:50px;">P</th>
+            <th style="padding:12px; text-align:center; font-weight:600; width:60px;">Total</th>
+            <th style="padding:12px; text-align:center; font-weight:600; width:60px;">CIE</th>
+            <th style="padding:12px; text-align:center; font-weight:600; width:60px;">SEE</th>
+            <th style="padding:12px; text-align:center; font-weight:600; width:60px;">Total</th>
+            <th style="padding:12px;"></th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="scheme-tbody">
+          {# Dean-provided courses (read-only) #}
+          {% if dean_courses %}
+            {% for c in dean_courses %}
+            <tr style="background:#f8f9fa; border-bottom:1px solid #e9ecef;">
+              <td style="padding:12px; text-align:center;">{{ forloop.counter }}</td>
+              
+              <!-- visible readonly display -->
+              <td style="padding:6px;">
+                <span style="display:inline-block; min-width:120px; color:#333; font-weight:600;">{{ c.category }}</span>
+              </td>
+              <td style="padding:6px;">
+                <span style="display:inline-block; min-width:90px;">{{ c.course_code }}</span>
+              </td>
+              <td style="padding:6px;">
+                <span style="display:inline-block; min-width:220px;">{{ c.course_title }}</span>
+              </td>
+
+              <!-- Teaching hours: show values but disabled so not editable -->
+              <td style="padding:6px; text-align:center;">
+                <input type="number" value="{{ c.l }}" disabled style="width:40px; text-align:center; background:transparent; border:0;">
+              </td>
+              <td style="padding:6px; text-align:center;">
+                <input type="number" value="{{ c.t }}" disabled style="width:40px; text-align:center; background:transparent; border:0;">
+              </td>
+              <td style="padding:6px; text-align:center;">
+                <input type="number" value="{{ c.p }}" disabled style="width:40px; text-align:center; background:transparent; border:0;">
+              </td>
+              <td style="padding:6px; text-align:center;">
+                <input type="number" value="{{ c.total_hours }}" disabled style="width:56px; text-align:center; background:transparent; border:0;">
+              </td>
+
+              <!-- Marks / Credits -->
+              <td style="padding:6px; text-align:center;">
+                <input type="number" value="{{ c.cie }}" disabled style="width:56px; text-align:center; background:transparent; border:0;">
+              </td>
+              <td style="padding:6px; text-align:center;">
+                <input type="number" value="{{ c.see }}" disabled style="width:56px; text-align:center; background:transparent; border:0;">
+              </td>
+              <td style="padding:6px; text-align:center;">
+                <input type="number" value="{{ c.total_marks }}" disabled style="width:56px; text-align:center; background:transparent; border:0;">
+              </td>
+              <td style="padding:6px; text-align:center;">
+                <input type="text" value="{{ c.credits }}" disabled style="width:56px; text-align:center; background:transparent; border:0;">
+              </td>
+
+              <!-- Faculty assign: allow choose (if you want hod to assign). If you DON'T want assignment here, replace with disabled span. -->
+              <td style="padding:6px; text-align:center;">
+                <select name="faculty_existing_{{ forloop.counter }}" style="width:130px;">
+                  <option value="">{% if c.faculty_id %}{{ c.faculty_id }}{% else %}-- Not Assigned --{% endif %}</option>
+                  {% for f in faculty_list %}
+                    <option value="{{ f.id }}" {% if c.faculty_id and c.faculty_id == f.id %}selected{% endif %}>{{ f.username }}</option>
+                  {% endfor %}
+                </select>
+              </td>
+
+              {# hidden fields so these dean values are submitted but not editable #}
+              <input type="hidden" name="existing_course_id_{{ forloop.counter }}" value="{{ c.id }}">
+              <input type="hidden" name="existing_course_code_{{ forloop.counter }}" value="{{ c.course_code }}">
+              <input type="hidden" name="existing_course_title_{{ forloop.counter }}" value="{{ c.course_title }}">
+              <input type="hidden" name="existing_category_{{ forloop.counter }}" value="{{ c.category }}">
+              <input type="hidden" name="existing_l_{{ forloop.counter }}" value="{{ c.l }}">
+              <input type="hidden" name="existing_t_{{ forloop.counter }}" value="{{ c.t }}">
+              <input type="hidden" name="existing_p_{{ forloop.counter }}" value="{{ c.p }}">
+              <input type="hidden" name="existing_total_hours_{{ forloop.counter }}" value="{{ c.total_hours }}">
+              <input type="hidden" name="existing_cie_{{ forloop.counter }}" value="{{ c.cie }}">
+              <input type="hidden" name="existing_see_{{ forloop.counter }}" value="{{ c.see }}">
+              <input type="hidden" name="existing_total_marks_{{ forloop.counter }}" value="{{ c.total_marks }}">
+              <input type="hidden" name="existing_credits_{{ forloop.counter }}" value="{{ c.credits }}">
+            </tr>
+            {% endfor %}
+          {% endif %}
+          {# One empty row for department to start with #}
+          <tr>
+            <td><input type="number" name="slno_new_1" value="" style="width:40px; text-align:center;" /></td>
+            <td>
+              <select name="category_new_1" style="width:120px;">
+                <option value="">-- Select --</option>
+                <option value="BSC">Basic Science Course (BSC)</option>
+                <option value="ESC">Engineering Science Course (ESC)</option>
+                <option value="ETC">Emerging Technology Course (ETC)</option>
+                <option value="PLC">Programming Language Course (PLC)</option>
+                <option value="PCC">Professional Core Course (PCC)</option>
+                <option value="IPCC">Integrated Professional Core Course (IPCC)</option>
+                <option value="PCCL">Professional Core Course Laboratory (PCCL)</option>
+                <option value="PEC">Professional Elective Course (PEC)</option>
+                <option value="OEC">Open Elective Course (OEC)</option>
+                <option value="PI">Project/Mini Project/Internship (PI)</option>
+                <option value="HSMC">Humanities and Social Sciences, Management Course (HSMC)</option>
+                <option value="AEC">Ability Enhancement Course (AEC)</option>
+                <option value="SEC">Skill Enhancement Course (SEC)</option>
+                <option value="UHV">Universal Human Value Course (UHV)</option>
+                <option value="MC">Non-credit Mandatory Course (MC)</option>
+                <option value="Course Name">Course Name (Acronym)</option>
+              </select>
+            </td>
+            <td><input type="text" name="code_new_1" style="width:90px;" /></td>
+            <td><input type="text" name="title_new_1" style="width:180px;" /></td>
+            <td><input type="number" name="l_new_1" style="width:50px;" onchange="calculateTotal(this, 1)" /></td>
+            <td><input type="number" name="t_new_1" style="width:50px;" onchange="calculateTotal(this, 1)" /></td>
+            <td><input type="number" name="p_new_1" style="width:50px;" onchange="calculateTotal(this, 1)" /></td>
+            <td><input type="number" name="total_hours_new_1" style="width:60px;" readonly /></td>
+            <td><input type="number" name="cie_new_1" style="width:60px;" onchange="calculateTotal(this, 1)" /></td>
+            <td><input type="number" name="see_new_1" style="width:60px;" onchange="calculateTotal(this, 1)" /></td>
+            <td><input type="number" name="total_marks_new_1" style="width:60px;" readonly /></td>
+            <td><input type="number" name="credits_new_1" style="width:60px;" /></td>
+            <td>
+              <select name="faculty_new_1" style="width:120px;">
+                <option value="">-- Not Assigned --</option>
+                {% for f in faculty_list %}
+                  <option value="{{ f.id }}">{{ f.username }}</option>
+                {% endfor %}
+              </select>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <button type="button" onclick="addRow()" style="margin-bottom:18px; padding:7px 18px; background:#1976d2; color:#fff; border:none; border-radius:4px; font-weight:600;">Add Row</button>
+
+      <!-- Main Elective/Enhancement Courses Section -->
+      <h2 style="margin-top:40px;">Add Elective/Enhancement Courses</h2>
+      <label for="elective_type"><b>Select Table Type:</b></label>
+      <select id="elective_type" onchange="showElectiveTable()" style="margin-left:10px;">
+        <option value="">-- Select --</option>
+        <option value="pec">Professional Elective Course</option>
+        <option value="oec">Open Elective Course</option>
+        <option value="esc">Engineering Science Course (ESC/ETC/PLC)</option>
+        <option value="aec">Ability Enhancement Course</option>
+      </select>
+
+      <div id="elective_tables" style="margin-top:20px;">
+        <!-- PEC Table with data-max="2" -->
+        <div id="table_pec" data-max="2" style="display:none;">
+          <h3 style="color:#6a1b9a;">Professional Elective Course</h3>
+          <table style="width:100%; border-collapse:collapse; margin-bottom:24px;">
+            <thead>
+              <tr style="background:#f4f6f8;">
+                <th style="width:20%; text-align:left;">Course Code</th>
+                <th style="width:60%; text-align:left;">Course Title</th>
+                <th style="width:20%; text-align:left;">Assign Faculty</th>
+              </tr>
+            </thead>
+            <tbody id="tbody_pec">
+            </tbody>
+          </table>
+          <button type="button" onclick="addElectiveRow('pec')" style="margin-bottom:18px; padding:7px 18px; background:#1976d2; color:#fff; border:none; border-radius:4px; font-weight:600;">Add Row</button>
+        </div>
+
+        <!-- OEC Table with data-max="2" -->
+        <div id="table_oec" data-max="2" style="display:none;">
+          <h3 style="color:#6a1b9a;">Open Elective Course</h3>
+          <table style="width:100%; border-collapse:collapse; margin-bottom:24px;">
+            <thead>
+              <tr style="background:#f4f6f8;">
+                <th style="width:20%; text-align:left;">Course Code</th>
+                <th style="width:60%; text-align:left;">Course Title</th>
+                <th style="width:20%; text-align:left;">Assign Faculty</th>
+              </tr>
+            </thead>
+            <tbody id="tbody_oec">
+            </tbody>
+          </table>
+          <button type="button" onclick="addElectiveRow('oec')" style="margin-bottom:18px; padding:7px 18px; background:#1976d2; color:#fff; border:none; border-radius:4px; font-weight:600;">Add Row</button>
+        </div>
+
+        <!-- ESC Table with data-max="2" -->
+        <div id="table_esc" data-max="2" style="display:none;">
+          <h3 style="color:#6a1b9a;">Engineering Science Course (ESC/ETC/PLC)</h3>
+          <table style="width:100%; border-collapse:collapse; margin-bottom:24px;">
+            <thead>
+              <tr style="background:#f4f6f8;">
+                <th style="width:20%; text-align:left;">Course Code</th>
+                <th style="width:60%; text-align:left;">Course Title</th>
+                <th style="width:20%; text-align:left;">Assign Faculty</th>
+              </tr>
+            </thead>
+            <tbody id="tbody_esc">
+            </tbody>
+          </table>
+          <button type="button" onclick="addElectiveRow('esc')" style="margin-bottom:18px; padding:7px 18px; background:#1976d2; color:#fff; border:none; border-radius:4px; font-weight:600;">Add Row</button>
+        </div>
+
+        <!-- AEC Table with data-max="2" -->
+        <div id="table_aec" data-max="2" style="display:none;">
+          <h3 style="color:#6a1b9a;">Ability Enhancement Course</h3>
+          <table style="width:100%; border-collapse:collapse; margin-bottom:24px;">
+            <thead>
+              <tr style="background:#f4f6f8;">
+                <th style="width:20%; text-align:left;">Course Code</th>
+                <th style="width:60%; text-align:left;">Course Title</th>
+                <th style="width:20%; text-align:left;">Assign Faculty</th>
+              </tr>
+            </thead>
+            <tbody id="tbody_aec">
+            </tbody>
+          </table>
+          <button type="button" onclick="addElectiveRow('aec')" style="margin-bottom:18px; padding:7px 18px; background:#1976d2; color:#fff; border:none; border-radius:4px; font-weight:600;">Add Row</button>
+        </div>
+      </div>
+
+      <!-- Additional Elective/Enhancement Course Section -->
+      <button type="button" onclick="showElectiveProcess()" style="margin-top:10px; padding:10px 20px; background:#007bff; color:#fff; border:none; border-radius:5px; cursor:pointer;">
+        Add Elective/Enhancement Course
+      </button>
+      <div id="elective_process" style="display:none; margin-top:20px;">
+        <label for="additional_elective_type"><b>Select Table Type:</b></label>
+        <select id="additional_elective_type" onchange="showAdditionalElectiveTable()" style="margin-left:10px;">
+          <option value="">-- Select --</option>
+          <option value="pec">Professional Elective Course</option>
+          <option value="oec">Open Elective Course</option>
+          <option value="esc">Engineering Science Course (ESC/ETC/PLC)</option>
+          <option value="aec">Ability Enhancement Course</option>
+        </select>
+
+        <div id="additional_elective_tables" style="margin-top:20px;">
+          <div id="additional_table_pec" style="display:none;">
+            <h3 style="color:#6a1b9a;">Professional Elective Course</h3>
+            <table style="width:100%; border-collapse:collapse; margin-bottom:24px;">
+              <thead>
+                <tr style="background:#f4f6f8;">
+                  <th style="width:20%;">Course Code</th>
+                  <th style="width:60%;">Course Title</th>
+                  <th style="width:20%;">Assign Faculty</th>
+                </tr>
+              </thead>
+              <tbody id="additional_tbody_pec">
+                <tr>
+                  <td><input type="text" name="additional_pec_code_1" style="width:100%;" /></td>
+                  <td><input type="text" name="additional_pec_title_1" style="width:100%;" /></td>
+                  <td>
+                    <select name="additional_pec_faculty_1" style="width:100%;">
+                      <option value="">-- Not Assigned --</option>
+                      {% for f in faculty_list %}
+                        <option value="{{ f.id }}">{{ f.username }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <button type="button" onclick="addAdditionalElectiveRow('pec')" style="margin-bottom:18px; padding:7px 18px; background:#1976d2; color:#fff; border:none; border-radius:4px; font-weight:600;">Add Row</button>
+          </div>
+          <div id="additional_table_oec" style="display:none;">
+            <h3 style="color:#6a1b9a;">Open Elective Course</h3>
+            <table style="width:100%; border-collapse:collapse; margin-bottom:24px;">
+              <thead>
+                <tr style="background:#f4f6f8;">
+                  <th style="width:20%;">Course Code</th>
+                  <th style="width:60%;">Course Title</th>
+                  <th style="width:20%;">Assign Faculty</th>
+                </tr>
+              </thead>
+              <tbody id="additional_tbody_oec">
+                <tr>
+                  <td><input type="text" name="additional_oec_code_1" style="width:100%;" /></td>
+                  <td><input type="text" name="additional_oec_title_1" style="width:100%;" /></td>
+                  <td>
+                    <select name="additional_oec_faculty_1" style="width:100%;">
+                      <option value="">-- Not Assigned --</option>
+                      {% for f in faculty_list %}
+                        <option value="{{ f.id }}">{{ f.username }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <button type="button" onclick="addAdditionalElectiveRow('oec')" style="margin-bottom:18px; padding:7px 18px; background:#1976d2; color:#fff; border:none; border-radius:4px; font-weight:600;">Add Row</button>
+          </div>
+          <div id="additional_table_esc" style="display:none;">
+            <h3 style="color:#6a1b9a;">Engineering Science Course (ESC/ETC/PLC)</h3>
+            <table style="width:100%; border-collapse:collapse; margin-bottom:24px;">
+              <thead>
+                <tr style="background:#f4f6f8;">
+                  <th style="width:20%;">Course Code</th>
+                  <th style="width:60%;">Course Title</th>
+                  <th style="width:20%;">Assign Faculty</th>
+                </tr>
+              </thead>
+              <tbody id="additional_tbody_esc">
+                <tr>
+                  <td><input type="text" name="additional_esc_code_1" style="width:100%;" /></td>
+                  <td><input type="text" name="additional_esc_title_1" style="width:100%;" /></td>
+                  <td>
+                    <select name="additional_esc_faculty_1" style="width:100%;">
+                      <option value="">-- Not Assigned --</option>
+                      {% for f in faculty_list %}
+                        <option value="{{ f.id }}">{{ f.username }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <button type="button" onclick="addAdditionalElectiveRow('esc')" style="margin-bottom:18px; padding:7px 18px; background:#1976d2; color:#fff; border:none; border-radius:4px; font-weight:600;">Add Row</button>
+          </div>
+          <div id="additional_table_aec" style="display:none;">
+            <h3 style="color:#6a1b9a;">Ability Enhancement Course</h3>
+            <table style="width:100%; border-collapse:collapse; margin-bottom:24px;">
+              <thead>
+                <tr style="background:#f4f6f8;">
+                  <th style="width:20%;">Course Code</th>
+                  <th style="width:60%;">Course Title</th>
+                  <th style="width:20%;">Assign Faculty</th>
+                </tr>
+              </thead>
+              <tbody id="additional_tbody_aec">
+                <tr>
+                  <td><input type="text" name="additional_aec_code_1" style="width:100%;" /></td>
+                  <td><input type="text" name="additional_aec_title_1" style="width:100%;" /></td>
+                  <td>
+                    <select name="additional_aec_faculty_1" style="width:100%;">
+                      <option value="">-- Not Assigned --</option>
+                      {% for f in faculty_list %}
+                        <option value="{{ f.id }}">{{ f.username }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <button type="button" onclick="addAdditionalElectiveRow('aec')" style="margin-bottom:18px; padding:7px 18px; background:#1976d2; color:#fff; border:none; border-radius:4px; font-weight:600;">Add Row</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Buttons at the End -->
+      <div style="margin-top:40px; text-align:center;">
+        <button type="submit" style="padding:10px 20px; background:#1976d2; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:600; margin-right:10px;">
+          Save Scheme
+        </button>
+        <button type="button" onclick="saveThenGeneratePDF()" style="padding:10px 20px; background:#28a745; color:#fff; border:none; border-radius:5px; cursor:pointer; margin-right:10px;">
+          <i class="fas fa-download"></i> Save & Download
+        </button>
+        <button type="button" onclick="goBack()" style="padding:10px 20px; background:#6c757d; color:#fff; border:none; border-radius:5px; cursor:pointer;">
+          Cancel/Back
+        </button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<script>
+let rowCount = 1;
+function addRow() {
+  rowCount++;
+  const tbody = document.getElementById('scheme-tbody');
+  const tr = document.createElement('tr');
+  tr.style.borderBottom = '1px solid #e9ecef';
+  tr.innerHTML = `
+    <td style="padding:12px;"><input type="number" name="slno_new_${rowCount}" style="width:40px; text-align:center; padding:6px; border:1px solid #ddd; border-radius:4px;" /></td>
+    <td style="padding:12px;">
+      <select name="category_new_${rowCount}" style="width:100%; padding:6px; border:1px solid #ddd; border-radius:4px;">
+        <option value="">-- Select --</option>
+        <option value="BSC">Basic Science Course (BSC)</option>
+        <option value="ESC">Engineering Science Course (ESC)</option>
+        <option value="ETC">Emerging Technology Course (ETC)</option>
+        <option value="PLC">Programming Language Course (PLC)</option>
+        <option value="PCC">Professional Core Course (PCC)</option>
+        <option value="IPCC">Integrated Professional Core Course (IPCC)</option>
+        <option value="PCCL">Professional Core Course Laboratory (PCCL)</option>
+        <option value="PEC">Professional Elective Course (PEC)</option>
+        <option value="OEC">Open Elective Course (OEC)</option>
+        <option value="PI">Project/Mini Project/Internship (PI)</option>
+        <option value="HSMC">Humanities and Social Sciences, Management Course (HSMC)</option>
+        <option value="AEC">Ability Enhancement Course (AEC)</option>
+        <option value="SEC">Skill Enhancement Course (SEC)</option>
+        <option value="UHV">Universal Human Value Course (UHV)</option>
+        <option value="MC">Non-credit Mandatory Course (MC)</option>
+        <option value="Course Name">Course Name (Acronym)</option>
+      </select>
+    </td>
+    <td style="padding:12px;"><input type="text" name="code_new_${rowCount}" style="width:100%; padding:6px; border:1px solid #ddd; border-radius:4px;" /></td>
+    <td style="padding:12px;"><input type="text" name="title_new_${rowCount}" style="width:100%; padding:6px; border:1px solid #ddd; border-radius:4px;" /></td>
+    <td style="padding:12px;"><input type="number" name="l_new_${rowCount}" style="width:40px; text-align:center; padding:6px; border:1px solid #ddd; border-radius:4px;" onchange="calculateTotal(this, ${rowCount})" /></td>
+    <td style="padding:12px;"><input type="number" name="t_new_${rowCount}" style="width:40px; text-align:center; padding:6px; border:1px solid #ddd; border-radius:4px;" onchange="calculateTotal(this, ${rowCount})" /></td>
+    <td style="padding:12px;"><input type="number" name="p_new_${rowCount}" style="width:40px; text-align:center; padding:6px; border:1px solid #ddd; border-radius:4px;" onchange="calculateTotal(this, ${rowCount})" /></td>
+    <td style="padding:12px;"><input type="number" name="total_hours_new_${rowCount}" style="width:56px; text-align:center; padding:6px; border:1px solid #ddd; border-radius:4px;" readonly /></td>
+    <td style="padding:12px;"><input type="number" name="cie_new_${rowCount}" style="width:56px; text-align:center; padding:6px; border:1px solid #ddd; border-radius:4px;" onchange="calculateTotal(this, ${rowCount})" /></td>
+    <td style="padding:12px;"><input type="number" name="see_new_${rowCount}" style="width:56px; text-align:center; padding:6px; border:1px solid #ddd; border-radius:4px;" onchange="calculateTotal(this, ${rowCount})" /></td>
+    <td style="padding:12px;"><input type="number" name="total_marks_new_${rowCount}" style="width:56px; text-align:center; padding:6px; border:1px solid #ddd; border-radius:4px;" readonly /></td>
+    <td style="padding:12px;"><input type="number" name="credits_new_${rowCount}" style="width:56px; text-align:center; padding:6px; border:1px solid #ddd; border-radius:4px;" /></td>
+    <td style="padding:12px;">
+      <select name="faculty_new_${rowCount}" style="width:140px; padding:6px; border:1px solid #ddd; border-radius:4px;">
+        <option value="">-- Not Assigned --</option>
+        {% for f in faculty_list %}
+          <option value="{{ f.id }}">{{ f.username }}</option>
+        {% endfor %}
+      </select>
+    </td>
+  `;
+  tbody.appendChild(tr);
+}
+
+function calculateTotal(element, rowNum) {
+  const l = parseFloat(document.querySelector(`input[name="l_new_${rowNum}"]`)?.value || 0);
+  const t = parseFloat(document.querySelector(`input[name="t_new_${rowNum}"]`)?.value || 0);
+  const p = parseFloat(document.querySelector(`input[name="p_new_${rowNum}"]`)?.value || 0);
+  const total = l + t + p;
+  const totalHoursInput = document.querySelector(`input[name="total_hours_new_${rowNum}"]`);
+  if (totalHoursInput) totalHoursInput.value = total;
+
+  const cie = parseFloat(document.querySelector(`input[name="cie_new_${rowNum}"]`)?.value || 0);
+  const see = parseFloat(document.querySelector(`input[name="see_new_${rowNum}"]`)?.value || 0);
+  const totalMarksInput = document.querySelector(`input[name="total_marks_new_${rowNum}"]`);
+  if (totalMarksInput) totalMarksInput.value = cie + see;
+}
+
+document.addEventListener('change', function(e) {
+  if (e.target.name.includes('_l_new_') || e.target.name.includes('_t_new_') || e.target.name.includes('_p_new_')) {
+    const rowNum = e.target.name.split('_').pop();
+    const l = parseFloat(document.querySelector(`input[name="l_new_${rowNum}"]`)?.value || 0);
+    const t = parseFloat(document.querySelector(`input[name="t_new_${rowNum}"]`)?.value || 0);
+    const p = parseFloat(document.querySelector(`input[name="p_new_${rowNum}"]`)?.value || 0);
+    const total = l + t + p;
+    document.querySelector(`input[name="total_hours_new_${rowCount}"]`).value = total;
+    
+    const cie = parseFloat(document.querySelector(`input[name="cie_new_${rowNum}"]`)?.value || 0);
+    const see = parseFloat(document.querySelector(`input[name="see_new_${rowNum}"]`)?.value || 0);
+    document.querySelector(`input[name="total_marks_new_${rowCount}"]`).value = cie + see;
+  }
+});
+
+/* ---------------------------
+   Elective tables: show + limit to 2 rows
+   --------------------------- */
+let electiveRowCount = {'pec': 0, 'oec': 0, 'esc': 0, 'aec': 0};
+
+/* Template for a single elective row with server-side faculty rendering */
+const electiveRowTemplate = (type, idx) => {
+  return `
+    <tr>
+      <td>
+        <input type="text" name="${type}_code_${idx}" style="width:100%; box-sizing:border-box;" />
+      </td>
+      <td>
+        <input type="text" name="${type}_title_${idx}" style="width:100%; box-sizing:border-box;" />
+      </td>
+      <td>
+        <select name="${type}_faculty_${idx}" style="width:100%; box-sizing:border-box;">
+          <option value="">-- Not Assigned --</option>
+          {% for f in faculty_list %}
+            <option value="{{ f.id }}">{{ f.username }}</option>
+          {% endfor %}
+        </select>
+      </td>
+    </tr>
+  `;
+}
+
+/* Show the selected elective block and ensure at least one row exists */
+function showElectiveTable() {
+  let val = document.getElementById('elective_type').value;
+  ['pec','oec','esc','aec'].forEach(function(type) {
+    const tbl = document.getElementById('table_' + type);
+    if (!tbl) return;
+    if (val === type) {
+      tbl.style.display = 'block';
+      // ensure there's an initial row
+      const tbody = document.getElementById('tbody_' + type);
+      if (tbody && tbody.children.length === 0) {
+        // reset counter for this type
+        electiveRowCount[type] = 0;
+        addElectiveRow(type);
+      }
+    } else {
+      tbl.style.display = 'none';
+    }
+  });
+}
+
+/* Add a row to the elective table (max controlled by data-max attr on container) */
+function addElectiveRow(type) {
+  const tbl = document.getElementById('table_' + type);
+  if (!tbl) return;
+  const maxAttr = tbl.getAttribute('data-max');
+  const max = maxAttr ? parseInt(maxAttr, 10) : 2;
+  const tbody = document.getElementById('tbody_' + type);
+  if (!tbody) return;
+
+  if (tbody.children.length >= max) {
+    alert('Maximum ' + max + ' rows allowed for ' + type.toUpperCase() + '.');
+    return;
+  }
+
+  // increment index and append new row from template
+  electiveRowCount[type] = electiveRowCount[type] + 1;
+  const idx = electiveRowCount[type];
+  const wrapper = document.createElement('tbody');
+  wrapper.innerHTML = electiveRowTemplate(type, idx);
+  const newRow = wrapper.querySelector('tr');
+  if (newRow) tbody.appendChild(newRow);
+
+  // If we've reached max, optionally disable the Add Row button
+  if (tbody.children.length >= max) {
+    const addBtn = tbl.querySelector('button[onclick*="addElectiveRow"]');
+    if (addBtn) addBtn.disabled = true;
+  }
+}
+
+/* Optional: when table selection changes, enable/disable its Add Row button depending on count */
+function updateAddButtons() {
+  ['pec','oec','esc','aec'].forEach(type => {
+    const tbl = document.getElementById('table_' + type);
+    if (!tbl) return;
+    const max = parseInt(tbl.getAttribute('data-max') || '2', 10);
+    const btn = tbl.querySelector('button[onclick*="addElectiveRow"]');
+    const tbody = document.getElementById('tbody_' + type);
+    if (btn && tbody) btn.disabled = tbody.children.length >= max;
+  });
+}
+
+/* Keep add-button state correct on load */
+document.addEventListener('DOMContentLoaded', function() {
+  updateAddButtons();
+});
+
+/* Additional elective section helpers (unchanged) */
+function showElectiveProcess() {
+  document.getElementById('elective_process').style.display = 'block';
+}
+
+let additionalElectiveRowCount = {'pec': 1, 'oec': 1, 'esc': 1, 'aec': 1};
+
+function showAdditionalElectiveTable() {
+  let val = document.getElementById('additional_elective_type').value;
+  ['pec', 'oec', 'esc', 'aec'].forEach(function(type) {
+    const el = document.getElementById('additional_table_' + type);
+    if (el) el.style.display = (val === type) ? 'block' : 'none';
+  });
+}
+
+function addAdditionalElectiveRow(type) {
+  additionalElectiveRowCount[type]++;
+  let tbody = document.getElementById('additional_tbody_' + type);
+  let tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="text" name="additional_${type}_code_${additionalElectiveRowCount[type]}" style="width:100%;" /></td>
+    <td><input type="text" name="additional_${type}_title_${additionalElectiveRowCount[type]}" style="width:100%;" /></td>
+    <td>
+      <select name="additional_${type}_faculty_${additionalElectiveRowCount[type]}" style="width:100%;">
+        <option value="">-- Not Assigned --</option>
+        {% for f in faculty_list %}
+          <option value="{{ f.id }}">{{ f.username }}</option>
+        {% endfor %}
+      </select>
+    </td>
+  `;
+  tbody.appendChild(tr);
+}
+
+function saveThenGeneratePDF() {
+  const form = document.getElementById('scheme-form');
+  const formData = new FormData(form);
+
+  const csrfInput = form.querySelector('input[name="csrfmiddlewaretoken"]');
+  const csrfToken = csrfInput ? csrfInput.value : null;
+
+  const branch_pk = "{{ branch.pk }}";
+  const year = "{{ year }}";
+  const semester = "{{ semester }}";
+
+  fetch(`/hod/generate-pdf/${branch_pk}/${year}/${semester}/`, {
+    method: 'POST',
+    body: formData,
+    credentials: 'same-origin',
+    headers: csrfToken ? { 'X-CSRFToken': csrfToken } : {}
+  })
+  .then(response => {
+    if (response.ok) {
+      return response.blob();
+    }
+    return response.text().then(text => { throw new Error(text || 'PDF generation failed'); });
+  })
+  .then(blob => {
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Scheme_${branch_pk}_${year}_Sem${semester}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  })
+  .catch(error => {
+    alert('Error: ' + (error.message || 'PDF generation failed'));
+    console.error('Error:', error);
+  });
+}
+
+function goBack() {
+  const branch_pk = "{{ branch.pk }}";
+  const year = "{{ year }}";
+  const semester = "{{ semester }}";
+  window.location.href = `/hod/dashboard/${branch_pk}/?year=${year}&semester=${semester}`;
+}
+</script>
+{% endblock %}

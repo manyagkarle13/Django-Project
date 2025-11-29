@@ -1,0 +1,207 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>{{ course.course_code }} - Syllabus</title>
+  <style>
+    @page { size: A4; margin: 20mm 18mm; }
+    body { font-family: "Helvetica", Arial, sans-serif; color:#000; font-size:11px; line-height:1.15; }
+    .header { text-align:center; margin-bottom:6px; }
+    .logo { float:left; width:60px; height:60px; margin-left:10px; }
+    .college { font-weight:700; font-size:14px; }
+    .sub { font-size:10px; margin-top:2px; }
+    .title { font-weight:700; margin-top:6px; font-size:12px; text-decoration:underline; }
+    .info-table, .modules-table, .books-table, .lab-table, .assessment-table, .matrix-table {
+      width:100%; border-collapse:collapse; margin-top:10px; font-size:10px;
+    }
+    .info-table td { padding:6px; vertical-align:top; }
+    .info-table .label { width:18%; font-weight:700; background:#f5f5f5; border:1px solid #000; }
+    .info-table .value { border:1px solid #000; padding-left:8px; }
+    .modules-table th, .modules-table td,
+    .books-table th, .books-table td,
+    .lab-table th, .lab-table td,
+    .assessment-table th, .assessment-table td,
+    .matrix-table th, .matrix-table td {
+      border:1px solid #000; padding:6px; vertical-align:top;
+    }
+    .modules-table th { background:#efefef; font-weight:700; text-align:left; }
+    .small { font-size:9px; }
+    .section-title { font-weight:700; margin-top:14px; margin-bottom:6px; }
+    .right { text-align:right; }
+    .center { text-align:center; }
+    .page-break { page-break-before: always; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    {% if logo_url %}
+      <img src="{{ logo_url }}" class="logo" alt="logo" />
+    {% endif %}
+    <div class="college">MALNAD COLLEGE OF ENGINEERING, HASSAN</div>
+    <div class="sub">(An Autonomous Institution — Hassan, Karnataka)</div>
+    <div class="title">DEPARTMENT OF {{ course.department|default:"INFORMATION SCIENCE AND ENGINEERING"|upper }}</div>
+  </div>
+
+  <!-- Course info table -->
+  <table class="info-table">
+    <tr>
+      <td class="label">Course Title</td>
+      <td class="value">{{ course.course_title|default:"-" }}</td>
+      <td class="label">Course Code</td>
+      <td class="value">{{ course.course_code|default:"-" }}</td>
+    </tr>
+    <tr>
+      <td class="label">L - T - P</td>
+      <td class="value">{{ course.teaching_hours_L|default:"0" }} - {{ course.teaching_hours_T|default:"0" }} - {{ course.teaching_hours_P|default:"0" }}</td>
+      <td class="label">Credits</td>
+      <td class="value">{{ course.credits|default:"-" }}</td>
+    </tr>
+    <tr>
+      <td class="label">Exam / SEE</td>
+      <td class="value">{{ course.see_marks|default:"50" }} Marks</td>
+      <td class="label">CIE</td>
+      <td class="value">{{ course.cie_marks|default:"50" }} Marks</td>
+    </tr>
+  </table>
+
+  <!-- Objectives -->
+  <div class="section-title">Course Objective</div>
+  <div class="small">{{ syllabus.objectives|default:"-"|linebreaksbr }}</div>
+
+  <!-- Outcomes -->
+  <div class="section-title">Course Outcomes (COs)</div>
+  <table class="modules-table">
+    <thead>
+      <tr><th style="width:6%;">#</th><th>Course Outcome</th><th style="width:12%;">Mapping to PO(s)</th></tr>
+    </thead>
+    <tbody>
+      {% if syllabus.cos %}
+        {% for co in syllabus.cos %}
+          <tr>
+            <td class="center">{{ forloop.counter }}</td>
+            <td>{{ co.text }}</td>
+            <td class="center">{{ co.pos|default:"" }}</td>
+          </tr>
+        {% endfor %}
+      {% else %}
+        {# fallback if outcomes stored as text lines #}
+        {% for line in syllabus.outcomes|default:""|splitlines %}
+          <tr>
+            <td class="center">{{ forloop.counter }}</td>
+            <td>{{ line }}</td>
+            <td class="center">-</td>
+          </tr>
+        {% endfor %}
+      {% endif %}
+    </tbody>
+  </table>
+
+  <!-- Modules -->
+  <div class="section-title">Modules / Syllabus</div>
+  <table class="modules-table">
+    <thead>
+      <tr><th style="width:7%;">Sl.No</th><th>Module / Topics</th><th style="width:14%;">Hrs</th></tr>
+    </thead>
+    <tbody>
+      {% if syllabus.modules %}
+        {% for m in syllabus.modules %}
+          <tr>
+            <td class="center">{{ forloop.counter }}</td>
+            <td><strong>{{ m.title }}</strong><div class="small">{{ m.topics|linebreaksbr }}</div></td>
+            <td class="center">{{ m.hours|default:"-" }}</td>
+          </tr>
+        {% endfor %}
+      {% else %}
+        {% for idx,line in syllabus.modules_text|default:""|splitlines %}
+          <tr>
+            <td class="center">{{ forloop.counter }}</td>
+            <td>{{ line }}</td>
+            <td class="center">-</td>
+          </tr>
+        {% endfor %}
+      {% endif %}
+    </tbody>
+  </table>
+
+  <!-- Assessment -->
+  <div class="section-title">Proposed Assessment Plan (for 50 marks of CIE)</div>
+  <table class="assessment-table">
+    <thead><tr><th>Tool</th><th>Remarks</th><th style="width:60px;">Marks</th></tr></thead>
+    <tbody>
+      {% for a in syllabus.assessments %}
+        <tr><td>{{ a.tool }}</td><td>{{ a.remarks }}</td><td class="center">{{ a.marks }}</td></tr>
+      {% empty %}
+        {{ syllabus.cie_scheme|default:"" }}
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- Laboratory Plan -->
+  {% if syllabus.lab_work %}
+  <div class="section-title">Laboratory Plan</div>
+  <table class="lab-table">
+    <thead><tr><th style="width:7%;">Sl.No</th><th>Program Details</th></tr></thead>
+    <tbody>
+      {% if syllabus.labs %}
+        {% for lab in syllabus.labs %}
+          <tr><td class="center">{{ forloop.counter }}</td><td>{{ lab|linebreaksbr }}</td></tr>
+        {% endfor %}
+      {% else %}
+        {% for i,line in syllabus.lab_work|default:""|splitlines %}
+          <tr><td class="center">{{ forloop.counter }}</td><td>{{ line }}</td></tr>
+        {% endfor %}
+      {% endif %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <!-- Books -->
+  <div class="section-title">Prescribed / Reference Books</div>
+  <table class="books-table">
+    <thead><tr><th style="width:6%;">Sl.No</th><th>Book Title</th><th>Authors</th><th style="width:80px;">Edition</th><th>Publisher</th><th style="width:50px;">Year</th></tr></thead>
+    <tbody>
+      {% for b in syllabus.prescribed %}
+        <tr><td class="center">{{ forloop.counter }}</td><td>{{ b.title }}</td><td>{{ b.authors }}</td><td class="center">{{ b.edition }}</td><td>{{ b.publisher }}</td><td class="center">{{ b.year }}</td></tr>
+      {% endfor %}
+      {% for b in syllabus.reference %}
+        <tr><td class="center">{{ forloop.counter0|add:prescribed|add:1 }}</td><td>{{ b.title }}</td><td>{{ b.authors }}</td><td class="center">{{ b.edition }}</td><td>{{ b.publisher }}</td><td class="center">{{ b.year }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- E-books / MOOC -->
+  {% if syllabus.ebooks %}
+    <div class="section-title">E-Books</div>
+    <div class="small">{% for e in syllabus.ebooks %}{{ forloop.counter }}. {{ e }}<br/>{% endfor %}</div>
+  {% endif %}
+  {% if syllabus.moocs %}
+    <div class="section-title">MOOC Courses</div>
+    <div class="small">{% for m in syllabus.moocs %}{{ forloop.counter }}. {{ m }}<br/>{% endfor %}</div>
+  {% endif %}
+
+  <!-- CO-PO Matrix -->
+  {% if syllabus.co_po_matrix %}
+  <div class="section-title">Course Articulation Matrix</div>
+  <table class="matrix-table">
+    <thead>
+      <tr>
+        <th>Course Outcomes</th>
+        {% for po in syllabus.po_list %}<th class="center">{{ po }}</th>{% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in syllabus.co_po_matrix %}
+        <tr>
+          <td><strong>{{ row.co }}</strong></td>
+          {% for val in row.values %}<td class="center">{{ val }}</td>{% endfor %}
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <div style="margin-top:18px;" class="small">Generated by MCE Syllabus Maker — Malnad College of Engineering</div>
+
+</body>
+</html>

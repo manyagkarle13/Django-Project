@@ -1,0 +1,831 @@
+{% extends "base.html" %}
+{% load static %}
+{% block content %}
+<div class="card" style="max-width:1100px;margin:20px auto;padding:18px;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,0.05);">
+  <h2 style="margin-top:0;border-bottom:2px solid #b72b3f;padding-bottom:10px;color:#123e77;">Add / Edit Syllabus — {{ course.course_code }} : {{ course.course_title }}</h2>
+
+  <form method="post" id="syllabus-form" novalidate>
+    {% csrf_token %}
+
+    <!-- Header: Course info (CLEANED VERSION) -->
+    <table style="width:100%;border-collapse:collapse;margin-top:20px;margin-bottom:20px;border:1px solid #ddd;border-radius:8px;overflow:hidden;">
+      <tbody>
+        <tr style="border-bottom:1px solid #ddd;">
+          <td style="width:25%;padding:12px 15px;border:1px solid #eee;background:#f5f8fa;font-weight:600;"><label>Course Title</label></td>
+          <td style="padding:12px 15px;border:1px solid #eee;border-right:none;"><input name="course_title" id="course_title" value="{{ course.course_title|default_if_none:'' }}" style="width:98%;padding:8px 10px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box;" required/></td>
+
+          <td style="width:20%;padding:12px 15px;border:1px solid #eee;background:#f5f8fa;font-weight:600;"><label>Course Code</label></td>
+          <td style="padding:12px 15px;border:1px solid #eee;border-left:none;"><input name="course_code" id="course_code" value="{{ course.course_code|default_if_none:'' }}" style="width:95%;padding:8px 10px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box;" required/></td>
+        </tr>
+
+        <tr style="border-bottom:1px solid #ddd;">
+          <td style="padding:12px 15px;border:1px solid #eee;background:#f5f8fa;font-weight:600;"><label>Course Category</label></td>
+          <td style="padding:12px 15px;border:1px solid #eee;border-right:none;"><input name="course_category" id="course_category" value="{{ syllabus.course_category|default_if_none:'' }}" style="width:98%;padding:8px 10px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box;" /></td>
+
+          <td style="padding:12px 15px;border:1px solid #eee;background:#f5f8fa;font-weight:600;"><label>L - T - P</label></td>
+          <td style="padding:12px 15px;border:1px solid #eee;border-left:none;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <input id="id_l" name="l" type="number" min="0" value="{{ syllabus.l|default_if_none:0 }}" style="width:60px;padding:8px;border:1px solid #ccc;border-radius:6px;text-align:center;box-sizing:border-box;" /> 
+              <span>-</span>
+              <input id="id_t" name="t" type="number" min="0" value="{{ syllabus.t|default_if_none:0 }}" style="width:60px;padding:8px;border:1px solid #ccc;border-radius:6px;text-align:center;box-sizing:border-box;" />
+              <span>-</span>
+              <input id="id_p" name="p" type="number" min="0" value="{{ syllabus.p|default_if_none:0 }}" style="width:60px;padding:8px;border:1px solid #ccc;border-radius:6px;text-align:center;box-sizing:border-box;" />
+              <span class="small" style="margin-left:8px;color:#666; font-size: 0.9em;">(L-T-P)</span>
+            </div>
+          </td>
+        </tr>
+
+        <tr style="border-bottom:1px solid #ddd;">
+          <td style="padding:12px 15px;border:1px solid #eee;background:#f5f8fa;font-weight:600;"><label>Hours/Week</label></td>
+          <td style="padding:12px 15px;border:1px solid #eee;border-right:none;"><input id="id_hours_week" name="hours_week" value="{{ syllabus.hours_week|default_if_none:'' }}" style="width:98%;padding:8px 10px;border:1px solid #ccc;border-radius:6px;background:#f0f0f0;box-sizing:border-box;" readonly /></td>
+
+          <td style="padding:12px 15px;border:1px solid #eee;background:#f5f8fa;font-weight:600;"><label>Credits (C)</label></td>
+          <td style="padding:12px 15px;border:1px solid #eee;border-left:none;">
+            <input id="id_credits" name="credits" type="number" step="0.5" value="{{ syllabus.credits|default_if_none:'' }}" style="width:120px;padding:8px 10px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box;" />
+            <div class="small" style="color:#666;margin-top:6px;font-size: 0.9em;">Set by HOD (editable).</div>
+          </td>
+        </tr>
+
+        <tr style="border-bottom:1px solid #ddd;">
+          <td style="padding:12px 15px;border:1px solid #eee;background:#f5f8fa;font-weight:600;"><label>Total Hours</label></td>
+          <td style="padding:12px 15px;border:1px solid #eee;border-right:none;"><input id="id_total_hours" name="total_hours" value="{{ syllabus.total_hours|default_if_none:'' }}" style="width:98%;padding:8px 10px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box;" /></td>
+
+          <td style="padding:12px 15px;border:1px solid #eee;background:#f5f8fa;font-weight:600;"><label>Semester</label></td>
+          <td style="padding:12px 15px;border:1px solid #eee;border-left:none;">
+            <select name="semester" id="id_semester" style="width:120px;padding:8px;border:1px solid #ccc;border-radius:6px;">
+              <option value="">-- Select --</option>
+              {% for i in "12345678"|make_list %}
+                {% if syllabus and syllabus.semester|stringformat:"s" == i|stringformat:"s" %}
+                  <option value="{{ i }}" selected>Semester {{ i }}</option>
+                {% elif initial_semester and initial_semester|stringformat:"s" == i|stringformat:"s" %}
+                  <option value="{{ i }}" selected>Semester {{ i }}</option>
+                {% else %}
+                  <option value="{{ i }}">Semester {{ i }}</option>
+                {% endif %}
+              {% endfor %}
+            </select>
+          </td>
+        </tr>
+
+        <tr style="border-bottom:1px solid #ddd;">
+          <td style="padding:12px 15px;border:1px solid #eee;background:#f5f8fa;font-weight:600;"><label>CIE Marks</label></td>
+          <td style="padding:12px 15px;border:1px solid #eee;border-right:none;"><input id="id_cie" name="cie" type="number" value="{{ syllabus.cie|default_if_none:course.cie_marks }}" style="width:98%;padding:8px 10px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box;" /></td>
+
+          <td style="padding:12px 15px;border:1px solid #eee;background:#f5f8fa;font-weight:600;"><label>SEE Marks</label></td>
+          <td style="padding:12px 15px;border:1px solid #eee;border-left:none;"><input id="id_see" name="see" type="number" value="{{ syllabus.see|default_if_none:course.see_marks }}" style="width:98%;padding:8px 10px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box;" /></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Course Objective -->
+    <div style="margin-bottom:20px;padding:12px;border:1px solid #ddd;border-radius:6px;">
+      <label style="display:block;margin-bottom:8px;font-weight:600;">Course Objective(s)</label>
+      <textarea name="objectives" rows="2" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;">{{ syllabus.objectives|default_if_none:'' }}</textarea>
+    </div>
+
+    <!-- Course Outcomes (COs) - TABLE STRUCTURE - INLINE REMOVE 'X' -->
+    <div style="margin-bottom:20px;padding:12px;border:1px solid #ddd;border-radius:6px;">
+      <label style="display:block;margin-bottom:8px;font-weight:600;">Course Outcomes (COs) — minimum 3 required (can be more)</label>
+      <div id="cos-container" style="border:1px solid #ddd; border-radius:4px; overflow:hidden;">
+        <table id="cos-table" style="width:100%; border-collapse:collapse;">
+          <thead>
+            <tr style="background:#eef2ff;">
+              <th style="width:5%; padding:8px; border:1px solid #ddd;">#</th>
+              <th style="width:50%; padding:8px; border:1px solid #ddd; text-align:left;">Course Outcomes</th>
+              <th style="width:20%; padding:8px; border:1px solid #ddd;">Mapping to PO's (Text)</th>
+              <th style="width:20%; padding:8px; border:1px solid #ddd;">Mapping to PSO's (Text)</th>
+              <th style="width:5%; padding:8px; border:1px solid #ddd;"></th> <!-- Remove column -->
+            </tr>
+          </thead>
+          <tbody id="cos-table-body">
+            {% comment %} Default / Existing Rows {% endcomment %}
+            {% if syllabus and syllabus.outcomes %}
+              {% for co in syllabus.outcomes.splitlines %}
+                <tr class="co-row" data-index="{{ forloop.counter }}">
+                  <td style="padding:6px; border:1px solid #ddd; text-align:center;">{{ forloop.counter }}</td>
+                  <td style="padding:6px; border:1px solid #ddd;">
+                    <textarea name="co_{{ forloop.counter }}" class="co-input" rows="2" placeholder="CO {{ forloop.counter }} Description" style="width:100%;padding:4px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;" required>{{ co }}</textarea>
+                  </td>
+                  <td style="padding:6px; border:1px solid #ddd;"><input name="co_map_po_{{ forloop.counter }}" class="co-map-po" placeholder="e.g. 1, 3, 5" style="width:100%;padding:4px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;" /></td>
+                  <td style="padding:6px; border:1px solid #ddd;"><input name="co_map_pso_{{ forloop.counter }}" class="co-map-pso" placeholder="e.g. 1, 2" style="width:100%;padding:4px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;" /></td>
+                  <td style="padding:6px; border:1px solid #ddd; text-align:center;">
+                    <button type="button" class="remove-co-btn-inline" style="color:red;background:none;border:none;cursor:pointer;border-radius: 4px;">&times;</button>
+                  </td>
+                </tr>
+              {% endfor %}
+            {% else %}
+              <tr class="co-row" data-index="1">
+                <td style="padding:6px; border:1px solid #ddd; text-align:center;">1</td>
+                <td style="padding:6px; border:1px solid #ddd;"><textarea name="co_1" class="co-input" rows="2" placeholder="CO 1 Description" style="width:100%;padding:4px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;" required></textarea></td>
+                <td style="padding:6px; border:1px solid #ddd;"><input name="co_map_po_1" class="co-map-po" placeholder="e.g. 1, 3, 5" style="width:100%;padding:4px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;" /></td>
+                <td style="padding:6px; border:1px solid #ddd;"><input name="co_map_pso_1" class="co-map-pso" placeholder="e.g. 1, 2" style="width:100%;padding:4px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;" /></td>
+                <td style="padding:6px; border:1px solid #ddd; text-align:center;">
+                    <button type="button" class="remove-co-btn-inline" style="color:red;background:none;border:none;cursor:pointer;border-radius: 4px;">&times;</button>
+                </td>
+              </tr>
+              <tr class="co-row" data-index="2">
+                <td style="padding:6px; border:1px solid #ddd; text-align:center;">2</td>
+                <td style="padding:6px; border:1px solid #ddd;"><textarea name="co_2" class="co-input" rows="2" placeholder="CO 2 Description" style="width:100%;padding:4px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;" required></textarea></td>
+                <td style="padding:6px; border:1px solid #ddd;"><input name="co_map_po_2" class="co-map-po" placeholder="e.g. 1, 3, 5" style="width:100%;padding:4px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;" /></td>
+                <td style="padding:6px; border:1px solid #ddd;"><input name="co_map_pso_2" class="co-map-pso" placeholder="e.g. 1, 2" style="width:100%;padding:4px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;" /></td>
+                <td style="padding:6px; border:1px solid #ddd; text-align:center;">
+                    <button type="button" class="remove-co-btn-inline" style="color:red;background:none;border:none;cursor:pointer;border-radius: 4px;">&times;</button>
+                </td>
+              </tr>
+              <tr class="co-row" data-index="3">
+                <td style="padding:6px; border:1px solid #ddd; text-align:center;">3</td>
+                <td style="padding:6px; border:1px solid #ddd;"><textarea name="co_3" class="co-input" rows="2" placeholder="CO 3 Description" style="width:100%;padding:4px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;" required></textarea></td>
+                <td style="padding:6px; border:1px solid #ddd;"><input name="co_map_po_3" class="co-map-po" placeholder="e.g. 1, 3, 5" style="width:100%;padding:4px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;" /></td>
+                <td style="padding:6px; border:1px solid #ddd;"><input name="co_map_pso_3" class="co-map-pso" placeholder="e.g. 1, 2" style="width:100%;padding:4px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;" /></td>
+                <td style="padding:6px; border:1px solid #ddd; text-align:center;">
+                    <button type="button" class="remove-co-btn-inline" style="color:red;background:none;border:none;cursor:pointer;border-radius: 4px;">&times;</button>
+                </td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:10px;">
+        <button type="button" id="add-co" class="btn" style="padding:8px 12px;background:#123e77;color:#fff;border-radius:6px;">Add CO Row</button>
+        <!-- REMOVED: <button type="button" id="remove-co" class="btn" ... >Remove CO Row</button> -->
+        <span class="small" style="color:#666;margin-left:12px">Minimum 3 COs required. Remove using the '×' button in the row.</span>
+      </div>
+    </div>
+
+    <!-- Modules (TABLE STRUCTURE) -->
+    <div style="margin-bottom:20px;padding:12px;border:1px solid #ddd;border-radius:6px;">
+      <label style="display:block;margin-bottom:8px;font-weight:600;">Module-wise Breakdown — add modules one-by-one (minimum 3 required)</label>
+      <div id="modules-container" style="border:1px solid #ddd; border-radius:4px; overflow-x:auto;">
+        <table id="modules-table" style="width:100%; border-collapse:collapse; min-width: 600px;">
+          <thead>
+            <tr style="background:#eef2ff;">
+              <th style="width:5%; padding:8px; border:1px solid #ddd;">#</th>
+              <th style="width:25%; padding:8px; border:1px solid #ddd; text-align:left;">Module Name</th>
+              <th style="width:50%; padding:8px; border:1px solid #ddd; text-align:left;">Topics (comma / newline separated)</th>
+              <th style="width:15%; padding:8px; border:1px solid #ddd;">Hours/Marks</th>
+              <th style="width:5%; padding:8px; border:1px solid #ddd;"></th> <!-- For removal button -->
+            </tr>
+          </thead>
+          <tbody id="modules-table-body">
+            {% for row in module_rows %}
+              <tr class="module-row" data-index="{{ row.index }}">
+                <td style="padding:6px; border:1px solid #ddd; text-align:center; font-weight:bold; color:#123e77;">{{ row.index }}</td>
+                <td style="padding:6px; border:1px solid #ddd;">
+                  <input name="module_title_{{ row.index }}" placeholder="Module Title" value="{{ row.title }}" style="width:100%;padding:4px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;" required />
+                </td>
+                <td style="padding:6px; border:1px solid #ddd;">
+                  <textarea name="module_topics_{{ row.index }}" rows="2" placeholder="Topics" style="width:100%;padding:4px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;">{{ row.topics }}</textarea>
+                </td>
+                <td style="padding:6px; border:1px solid #ddd;">
+                  <input name="module_hours_{{ row.index }}" placeholder="Hours" value="{{ row.hours }}" style="width:100%;padding:4px;border:1px solid #ccc;border-radius:4px;text-align:center;box-sizing:border-box;" required />
+                </td>
+                <td style="padding:6px; border:1px solid #ddd; text-align:center;"><button type="button" class="remove-module-btn" style="color:red;background:none;border:none;cursor:pointer;border-radius: 4px;">&times;</button></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:10px;">
+        <button type="button" id="add-module" class="btn" style="padding:8px 12px;background:#123e77;color:#fff;border-radius:6px;">Add Module</button>
+        <!-- REMOVED: <button type="button" id="remove-module" class="btn" ... >Remove Module</button> -->
+        <span class="small" style="color:#666;margin-left:12px">At least 3 modules required. Remove using the '×' button in the row.</span>
+      </div>
+    </div>
+
+    <!-- Prescribed Text Books (TABLE STRUCTURE) -->
+    <div style="margin-bottom:20px;padding:12px;border:1px solid #ddd;border-radius:6px;">
+      <label style="display:block;margin-bottom:8px;font-weight:600;">Prescribed Text Books</label>
+      <div id="prescribed-books-container" style="border:1px solid #ddd; border-radius:4px; overflow-x:auto;">
+        <table id="prescribed-books-table" style="width:100%; border-collapse:collapse; min-width: 800px;">
+          <thead>
+            <tr style="background:#eef2ff;">
+              <th style="width:5%; padding:8px; border:1px solid #ddd;">#</th>
+              <th style="width:25%; padding:8px; border:1px solid #ddd; text-align:left;">Title</th>
+              <th style="width:20%; padding:8px; border:1px solid #ddd; text-align:left;">Authors</th>
+              <th style="width:15%; padding:8px; border:1px solid #ddd;">Edition</th>
+              <th style="width:20%; padding:8px; border:1px solid #ddd;">Publisher</th>
+              <th style="width:10%; padding:8px; border:1px solid #ddd;">Year</th>
+              <th style="width:5%; padding:8px; border:1px solid #ddd;"></th> <!-- For removal -->
+            </tr>
+          </thead>
+          <tbody id="prescribed-books">
+            {% if prescribed_books %}
+              {% for b in prescribed_books %}
+                <tr class="prescribed-row" data-index="{{ b.index }}">
+                  <td style="padding:6px; border:1px solid #ddd; text-align:center;">{{ b.index }}</td>
+                  <td style="padding:6px; border:1px solid #ddd;"><input name="prescribed_title_{{ b.index }}" value="{{ b.title }}" placeholder="Book Title" style="width:100%;padding:4px;box-sizing:border-box;" /></td>
+                  <td style="padding:6px; border:1px solid #ddd;"><input name="prescribed_authors_{{ b.index }}" value="{{ b.authors }}" placeholder="Authors" style="width:100%;padding:4px;box-sizing:border-box;" /></td>
+                  <td style="padding:6px; border:1px solid #ddd;"><input name="prescribed_edition_{{ b.index }}" value="{{ b.edition }}" placeholder="Edition" style="width:100%;padding:4px;text-align:center;box-sizing:border-box;" /></td>
+                  <td style="padding:6px; border:1px solid #ddd;"><input name="prescribed_publisher_{{ b.index }}" value="{{ b.publisher }}" placeholder="Publisher" style="width:100%;padding:4px;box-sizing:border-box;" /></td>
+                  <td style="padding:6px; border:1px solid #ddd;"><input name="prescribed_year_{{ b.index }}" value="{{ b.year }}" placeholder="Year" style="width:100%;padding:4px;text-align:center;box-sizing:border-box;" /></td>
+                  <td style="padding:6px; border:1px solid #ddd; text-align:center;"><button type="button" class="remove-dynamic-row-btn" style="color:red;background:none;border:none;cursor:pointer;font-weight:bold;font-size:1.2em;line-height:1;padding:0 5px;border-radius: 4px;">&times;</button></td>
+                </tr>
+              {% endfor %}
+            {% else %}
+              <tr class="prescribed-row" data-index="1">
+                <td style="padding:6px; border:1px solid #ddd; text-align:center;">1</td>
+                <td style="padding:6px; border:1px solid #ddd;"><input name="prescribed_title_1" placeholder="Book Title" style="width:100%;padding:4px;box-sizing:border-box;" /></td>
+                <td style="padding:6px; border:1px solid #ddd;"><input name="prescribed_authors_1" placeholder="Authors" style="width:100%;padding:4px;box-sizing:border-box;" /></td>
+                <td style="padding:6px; border:1px solid #ddd;"><input name="prescribed_edition_1" placeholder="Edition" style="width:100%;padding:4px;text-align:center;box-sizing:border-box;" /></td>
+                <td style="padding:6px; border:1px solid #ddd;"><input name="prescribed_publisher_1" placeholder="Publisher" style="width:100%;padding:4px;box-sizing:border-box;" /></td>
+                <td style="padding:6px; border:1px solid #ddd;"><input name="prescribed_year_1" placeholder="Year" style="width:100%;padding:4px;text-align:center;box-sizing:border-box;" /></td>
+                <td style="padding:6px; border:1px solid #ddd; text-align:center;"><button type="button" class="remove-dynamic-row-btn" style="color:red;background:none;border:none;cursor:pointer;font-weight:bold;font-size:1.2em;line-height:1;padding:0 5px;border-radius: 4px;">&times;</button></td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:10px;">
+          <button type="button" id="add-prescribed" class="btn" style="padding:8px 12px;background:#123e77;color:#fff;border-radius:6px;">Add Book</button>
+      </div>
+    </div>
+
+    <!-- Reference Books (TABLE STRUCTURE) -->
+    <div style="margin-bottom:20px;padding:12px;border:1px solid #ddd;border-radius:6px;">
+      <label style="display:block;margin-bottom:8px;font-weight:600;">Reference Books</label>
+      <div id="reference-books-container" style="border:1px solid #ddd; border-radius:4px; overflow-x:auto;">
+        <table id="reference-books-table" style="width:100%; border-collapse:collapse; min-width: 800px;">
+          <thead>
+            <tr style="background:#eef2ff;">
+              <th style="width:5%; padding:8px; border:1px solid #ddd;">#</th>
+              <th style="width:25%; padding:8px; border:1px solid #ddd; text-align:left;">Title</th>
+              <th style="width:20%; padding:8px; border:1px solid #ddd; text-align:left;">Authors</th>
+              <th style="width:15%; padding:8px; border:1px solid #ddd;">Edition</th>
+              <th style="width:20%; padding:8px; border:1px solid #ddd; text-align:left;">Publisher</th>
+              <th style="width:10%; padding:8px; border:1px solid #ddd;">Year</th>
+              <th style="width:5%; padding:8px; border:1px solid #ddd;"></th> <!-- For removal -->
+            </tr>
+          </thead>
+          <tbody id="reference-books">
+            {% if reference_books %}
+              {% for b in reference_books %}
+                <tr class="reference-row" data-index="{{ b.index }}">
+                  <td style="padding:6px; border:1px solid #ddd; text-align:center;">{{ b.index }}</td>
+                  <td style="padding:6px; border:1px solid #ddd;"><input name="reference_title_{{ b.index }}" value="{{ b.title }}" placeholder="Book Title" style="width:100%;padding:4px;box-sizing:border-box;" /></td>
+                  <td style="padding:6px; border:1px solid #ddd;"><input name="reference_authors_{{ b.index }}" value="{{ b.authors }}" placeholder="Authors" style="width:100%;padding:4px;box-sizing:border-box;" /></td>
+                  <td style="padding:6px; border:1px solid #ddd;"><input name="reference_edition_{{ b.index }}" value="{{ b.edition }}" placeholder="Edition" style="width:100%;padding:4px;text-align:center;box-sizing:border-box;" /></td>
+                  <td style="padding:6px; border:1px solid #ddd;"><input name="reference_publisher_{{ b.index }}" value="{{ b.publisher }}" placeholder="Publisher" style="width:100%;padding:4px;box-sizing:border-box;" /></td>
+                  <td style="padding:6px; border:1px solid #ddd;"><input name="reference_year_{{ b.index }}" value="{{ b.year }}" placeholder="Year" style="width:100%;padding:4px;text-align:center;box-sizing:border-box;" /></td>
+                  <td style="padding:6px; border:1px solid #ddd; text-align:center;"><button type="button" class="remove-dynamic-row-btn" style="color:red;background:none;border:none;cursor:pointer;font-weight:bold;font-size:1.2em;line-height:1;padding:0 5px;border-radius: 4px;">&times;</button></td>
+                </tr>
+              {% endfor %}
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:10px;">
+          <button type="button" id="add-reference" class="btn" style="padding:8px 12px;background:#123e77;color:#fff;border-radius:6px;">Add Book</button>
+      </div>
+    </div>
+
+
+    <!-- E-Books / MOOC (TABLE STRUCTURE) -->
+    <div style="margin-bottom:20px;padding:12px;border:1px solid #ddd;border-radius:6px;">
+      <div style="display:flex;gap:20px">
+        
+        <!-- E-Books Table -->
+        <div style="flex:1">
+          <label style="display:block;margin-bottom:8px;font-weight:600;">E-Books</label>
+          <div id="ebooks-container" style="border:1px solid #ddd; border-radius:4px; overflow-x:auto;">
+            <table id="ebooks-table" style="width:100%; border-collapse:collapse;">
+              <thead>
+                <tr style="background:#eef2ff;">
+                  <th style="width:5%; padding:8px; border:1px solid #ddd;">#</th>
+                  <th style="width:90%; padding:8px; border:1px solid #ddd; text-align:left;">Link / Details</th>
+                  <th style="width:5%; padding:8px; border:1px solid #ddd;"></th> <!-- For removal -->
+                </tr>
+              </thead>
+              <tbody id="ebooks-list">
+                {% for e in ebooks %}
+                  <tr class="ebook-row" data-index="{{ e.index }}">
+                    <td style="padding:6px; border:1px solid #ddd; text-align:center;">{{ e.index }}</td>
+                    <td style="padding:6px; border:1px solid #ddd;">
+                        <input name="ebook_{{ e.index }}" value="{{ e.value }}" placeholder="E-Book URL / details" style="width:100%;padding:4px;box-sizing:border-box;" />
+                    </td>
+                    <td style="padding:6px; border:1px solid #ddd; text-align:center;"><button type="button" class="remove-dynamic-row-btn" style="color:red;background:none;border:none;cursor:pointer;font-weight:bold;font-size:1.2em;line-height:1;padding:0 5px;border-radius: 4px;">&times;</button></td>
+                  </tr>
+                {% empty %}
+                  <tr class="ebook-row" data-index="1">
+                    <td style="padding:6px; border:1px solid #ddd; text-align:center;">1</td>
+                    <td style="padding:6px; border:1px solid #ddd;">
+                        <input name="ebook_1" placeholder="E-Book URL / details" style="width:100%;padding:4px;box-sizing:border-box;" />
+                    </td>
+                    <td style="padding:6px; border:1px solid #ddd; text-align:center;"><button type="button" class="remove-dynamic-row-btn" style="color:red;background:none;border:none;cursor:pointer;font-weight:bold;font-size:1.2em;line-height:1;padding:0 5px;border-radius: 4px;">&times;</button></td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div style="margin-top:10px;">
+            <button type="button" id="add-ebook" class="btn" style="padding:8px 12px;background:#123e77;color:#fff;border-radius:6px;">Add E-Book</button>
+          </div>
+        </div>
+        
+        <!-- MOOC Courses Table -->
+        <div style="flex:1">
+          <label style="display:block;margin-bottom:8px;font-weight:600;">MOOC Courses</label>
+          <div id="mooc-container" style="border:1px solid #ddd; border-radius:4px; overflow-x:auto;">
+            <table id="mooc-table" style="width:100%; border-collapse:collapse;">
+              <thead>
+                <tr style="background:#eef2ff;">
+                  <th style="width:5%; padding:8px; border:1px solid #ddd;">#</th>
+                  <th style="width:90%; padding:8px; border:1px solid #ddd; text-align:left;">Link / Details</th>
+                  <th style="width:5%; padding:8px; border:1px solid #ddd;"></th> <!-- For removal -->
+                </tr>
+              </thead>
+              <tbody id="mooc-list">
+                {% for m in moocs %}
+                  <tr class="mooc-row" data-index="{{ m.index }}">
+                    <td style="padding:6px; border:1px solid #ddd; text-align:center;">{{ m.index }}</td>
+                    <td style="padding:6px; border:1px solid #ddd;">
+                        <input name="mooc_{{ m.index }}" value="{{ m.value }}" placeholder="MOOC URL / details" style="width:100%;padding:4px;box-sizing:border-box;" />
+                    </td>
+                    <td style="padding:6px; border:1px solid #ddd; text-align:center;"><button type="button" class="remove-dynamic-row-btn" style="color:red;background:none;border:none;cursor:pointer;font-weight:bold;font-size:1.2em;line-height:1;padding:0 5px;border-radius: 4px;">&times;</button></td>
+                  </tr>
+                {% empty %}
+                  <tr class="mooc-row" data-index="1">
+                    <td style="padding:6px; border:1px solid #ddd; text-align:center;">1</td>
+                    <td style="padding:6px; border:1px solid #ddd;">
+                        <input name="mooc_1" placeholder="MOOC URL / details" style="width:100%;padding:4px;box-sizing:border-box;" />
+                    </td>
+                    <td style="padding:6px; border:1px solid #ddd; text-align:center;"><button type="button" class="remove-dynamic-row-btn" style="color:red;background:none;border:none;cursor:pointer;font-weight:bold;font-size:1.2em;line-height:1;padding:0 5px;border-radius: 4px;">&times;</button></td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div style="margin-top:10px;">
+            <button type="button" id="add-mooc" class="btn" style="padding:8px 12px;background:#123e77;color:#fff;border-radius:6px;">Add MOOC</button>
+          </div>
+        </div>
+        
+      </div>
+    </div>
+
+    <!-- Proposed Assessment Plan (for 50 marks of CIE) -->
+    <div style="margin-bottom:20px;padding:12px;border:1px solid #ddd;border-radius:6px;">
+      <label style="display:block;margin-bottom:8px;font-weight:600;">Proposed Assessment Plan (for 50 marks of CIE)</label>
+      <table id="assessment-table" style="width:100%;border-collapse:collapse;border:1px solid #ddd;border-radius:4px;overflow:hidden;">
+        <thead>
+          <tr style="background:#eef2ff;">
+            <th style="padding:10px;border:1px solid #ddd;text-align:left">Tool</th>
+            <th style="padding:10px;border:1px solid #ddd;text-align:left">Remarks</th>
+            <th style="padding:10px;border:1px solid #ddd;width:120px">Marks</th>
+            <th style="padding:10px;border:1px solid #ddd;width:50px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% comment %} Rows rendered by Django context or default JS load. Starting with two defaults: {% endcomment %}
+          <tr class="assessment-row" data-index="1">
+            <td style="padding:6px;border:1px solid #eee">
+              <input name="tool_1" value="Internals" style="width:100%;padding:4px;box-sizing:border-box;" />
+            </td>
+            <td style="padding:6px;border:1px solid #eee">
+              <textarea name="remarks_1" rows="2" style="width:100%;padding:4px;box-sizing:border-box;">Three tests conducted for 20 marks each and reduced to 10 marks</textarea>
+            </td>
+            <td style="padding:6px;border:1px solid #eee">
+              <input name="marks_1" value="30" style="width:100%;padding:4px;box-sizing:border-box;" />
+            </td>
+            <td style="padding:6px;border:1px solid #eee;text-align:center"><button type="button" class="remove-assessment-btn" style="color:red;background:none;border:none;cursor:pointer;border-radius: 4px;">&times;</button></td>
+          </tr>
+          <tr class="assessment-row" data-index="2">
+            <td style="padding:6px;border:1px solid #eee">
+              <input name="tool_2" value="AAT" style="width:100%;padding:4px;box-sizing:border-box;" />
+            </td>
+            <td style="padding:6px;border:1px solid #eee">
+              <textarea name="remarks_2" rows="2" style="width:100%;padding:4px;box-sizing:border-box;">Details of activities to be conducted
+1) Demonstration using JFLAP tool – 5 marks
+2) Problem solving test – 10 marks
+3) Concept/problem presentation – 5 marks</textarea>
+            </td>
+            <td style="padding:6px;border:1px solid #eee">
+              <input name="marks_2" value="20" style="width:100%;padding:4px;box-sizing:border-box;" />
+            </td>
+            <td style="padding:6px;border:1px solid #eee;text-align:center"><button type="button" class="remove-assessment-btn" style="color:red;background:none;border:none;cursor:pointer;border-radius: 4px;">&times;</button></td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="2" style="padding:10px;border:1px solid #eee;text-align:right;background:#f9f9f9;"><strong>Total CIE Marks</strong></td>
+            <td style="padding:10px;border:1px solid #eee;background:#f9f9f9;"><strong>50</strong></td>
+            <td style="padding:10px;border:1px solid #eee;background:#f9f9f9;"></td>
+          </tr>
+        </tfoot>
+      </table>
+      <div style="margin-top:10px;">
+          <button type="button" id="add-assessment-row" class="btn" style="padding:8px 12px;background:#123e77;color:#fff;border-radius:6px;">Add Assessment Row</button>
+      </div>
+    </div>
+
+    <!-- Laboratory Plan (visible when P>0) -->
+    <div id="lab-plan-wrap" style="margin-bottom:20px;padding:12px;border:1px solid #ddd;border-radius:6px;display:none;">
+      <label style="display:block;margin-bottom:8px;font-weight:600;">Laboratory Plan</label>
+      <div id="lab-list">
+        <!-- Table structure for Laboratory Plan -->
+        <table id="lab-table" style="width:100%; border-collapse:collapse;">
+            <thead>
+                <tr style="background:#eef2ff;">
+                    <th style="width:5%; padding:8px; border:1px solid #ddd;">#</th>
+                    <th style="width:90%; padding:8px; border:1px solid #ddd; text-align:left;">Lab Program Details</th>
+                    <th style="width:5%; padding:8px; border:1px solid #ddd;"></th>
+                </tr>
+            </thead>
+            <tbody id="lab-list-body">
+                {% comment %} existing lab items (if any) can be rendered here, currently relies on JS for default row {% endcomment %}
+            </tbody>
+        </table>
+      </div>
+      <div style="margin-top:10px;">
+        <button type="button" id="add-lab-item" class="btn" style="padding:8px 12px;background:#123e77;color:#fff;border-radius:6px;">Add Lab Item</button>
+        <!-- REMOVED: <button type="button" id="remove-lab-item" class="btn" ... >Remove Last Item</button> -->
+      </div>
+    </div>
+
+    <!-- Course Articulation Matrix (moved to the end) -->
+    <div style="margin-bottom:20px;padding:12px;border:1px solid #ddd;border-radius:6px;">
+      <label style="display:block;margin-bottom:8px;font-weight:600;">Course Articulation Matrix (CO - PO/PSO Mapping)</label>
+      <div id="matrix-wrap" style="overflow-x:auto;border:1px solid #ddd;border-radius:4px;padding:8px;background:#fff;max-width:100%;">
+        <table id="matrix-table" style="border-collapse:collapse;min-width:700px;"></table>
+      </div>
+      <div class="small" style="color:#666;margin-top:6px">Use numbers (1/2/3) to indicate strength in the matrix cells (1=Slight, 2=Moderate, 3=Strong).</div>
+    </div>
+
+    <div style="margin-top:20px;padding-top:10px;border-top:1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <input type="hidden" name="action" id="action" value="save_only">
+        
+        <button class="btn" type="submit" onclick="document.getElementById('action').value='save_only'" style="background:#b72b3f;color:#fff;padding:10px 18px;border-radius:6px;border:0;font-size:16px;cursor:pointer;">Save Syllabus</button>
+        
+        <button class="btn" type="submit" onclick="document.getElementById('action').value='generate_pdf'" style="background:#b72b3f;color:#fff;padding:10px 18px;border-radius:6px;border:0;margin-left:12px;font-size:16px;cursor:pointer;">Generate PDF</button>
+        
+        <a href="{% url 'academics:syllabus_list' %}" style="margin-left:30px;color:#123e77;text-decoration:underline;font-size:14px;">Cancel / Back</a>
+      </div>
+    </div>
+  </form>
+</div>
+
+<script>
+(function(){
+  // --- Core Elements & Handlers ---
+  const lEl = document.getElementById('id_l');
+  const tEl = document.getElementById('id_t');
+  const pEl = document.getElementById('id_p');
+  const hoursWeekEl = document.getElementById('id_hours_week');
+  const form = document.getElementById('syllabus-form');
+  const labTableBody = document.getElementById('lab-list-body');
+  const assessmentTableBody = document.getElementById('assessment-table').querySelector('tbody');
+
+  function updateHours() {
+    const l = Number(lEl?.value || 0);
+    const t = Number(tEl?.value || 0);
+    const p = Number(pEl?.value || 0);
+    const hours = l + t + p;
+    if (!Number.isNaN(hours)) hoursWeekEl.value = hours;
+    toggleLabActivity(p);
+  }
+
+  function toggleLabActivity(p) {
+    const labWrap = document.getElementById('lab-plan-wrap');
+    if (labWrap) labWrap.style.display = (p > 0 ? 'block' : 'none');
+  }
+
+  // --- COs: dynamic add/remove, MINIMUM 3, using inline X ---
+  const cosTableBody = document.getElementById('cos-table-body');
+  const addCoBtn = document.getElementById('add-co');
+  const coCount = () => cosTableBody.querySelectorAll('.co-row').length;
+  const MIN_COS = 3; // Set minimum required COs to 3
+
+  // Function to create a new CO table row
+  const createCoRow = (idx, coContent = '', coMapPo = '', coMapPso = '') => {
+      const tr = document.createElement('tr');
+      tr.className = 'co-row';
+      tr.dataset.index = idx;
+      tr.innerHTML = `
+          <td style="padding:6px; border:1px solid #ddd; text-align:center;">${idx}</td>
+          <td style="padding:6px; border:1px solid #ddd;">
+              <textarea name="co_${idx}" class="co-input" rows="2" placeholder="CO ${idx} Description" style="width:100%;padding:4px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;" required>${coContent}</textarea>
+          </td>
+          <td style="padding:6px; border:1px solid #ddd;"><input name="co_map_po_${idx}" class="co-map-po" placeholder="e.g. 1, 3, 5" value="${coMapPo}" style="width:100%;padding:4px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;" /></td>
+          <td style="padding:6px; border:1px solid #ddd;"><input name="co_map_pso_${idx}" class="co-map-pso" placeholder="e.g. 1, 2" value="${coMapPso}" style="width:100%;padding:4px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;" /></td>
+          <td style="padding:6px; border:1px solid #ddd; text-align:center;">
+              <button type="button" class="remove-co-btn-inline" style="color:red;background:none;border:none;cursor:pointer;border-radius: 4px;">&times;</button>
+          </td>
+      `;
+      return tr;
+  };
+
+  // Add CO button handler
+  addCoBtn.addEventListener('click', () => {
+    const idx = coCount() + 1;
+    cosTableBody.appendChild(createCoRow(idx));
+    refreshMatrix();
+  });
+
+  // Inline CO removal handler (delegated to table body)
+  cosTableBody.addEventListener('click', (e) => {
+      if (e.target.classList.contains('remove-co-btn-inline')) {
+          const rowToRemove = e.target.closest('.co-row');
+          if (rowToRemove) {
+              if (coCount() <= MIN_COS) return alert(`Minimum ${MIN_COS} COs are required.`);
+              
+              rowToRemove.remove();
+              
+              // Re-index remaining rows and update form names/numbers
+              cosTableBody.querySelectorAll('.co-row').forEach((row, i) => {
+                  const newIdx = i + 1;
+                  row.dataset.index = newIdx;
+                  row.querySelector('td:first-child').innerHTML = newIdx; // Update displayed number
+                  
+                  // Update input names for correct submission
+                  row.querySelector('.co-input').name = `co_${newIdx}`;
+                  row.querySelector('.co-map-po').name = `co_map_po_${newIdx}`;
+                  row.querySelector('.co-map-pso').name = `co_map_pso_${newIdx}`;
+              });
+              
+              refreshMatrix();
+          }
+      }
+  });
+
+  document.addEventListener('input', function(e){
+    // Update matrix when CO text changes (listening for input on the CO textareas)
+    const isCOInput = e.target.closest('#cos-table-body') && e.target.classList.contains('co-input');
+    if (isCOInput) refreshMatrix();
+  });
+
+  // --- Modules: dynamic add/remove; require >=4 ---
+  const modulesTableBody = document.getElementById('modules-table-body');
+  const addModuleBtn = document.getElementById('add-module');
+  const moduleCount = () => modulesTableBody.querySelectorAll('.module-row').length;
+  const MIN_MODULES = 3; // Set minimum required Modules to 3
+
+  addModuleBtn.addEventListener('click', () => {
+    const idx = moduleCount() + 1;
+    const tr = document.createElement('tr');
+    tr.className = 'module-row';
+    tr.dataset.index = idx;
+    tr.innerHTML = `
+        <td style="padding:6px; border:1px solid #ddd; text-align:center; font-weight:bold; color:#123e77;">${idx}</td>
+        <td style="padding:6px; border:1px solid #ddd;">
+            <input name="module_title_${idx}" placeholder="Module Name" style="width:100%;padding:4px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;" required />
+        </td>
+        <td style="padding:6px; border:1px solid #ddd;">
+            <textarea name="module_topics_${idx}" rows="2" placeholder="Topics" style="width:100%;padding:4px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;"></textarea>
+        </td>
+        <td style="padding:6px; border:1px solid #ddd;">
+            <input name="module_hours_${idx}" placeholder="Hours" style="width:100%;padding:4px;border:1px solid #ccc;border-radius:4px;text-align:center;box-sizing:border-box;" required />
+        </td>
+        <td style="padding:6px; border:1px solid #ddd; text-align:center;"><button type="button" class="remove-module-btn" style="color:red;background:none;border:none;cursor:pointer;border-radius: 4px;">&times;</button></td>
+    `;
+    modulesTableBody.appendChild(tr);
+  });
+  
+  // Individual module row removal (retains logic for minimum 4 modules)
+  modulesTableBody.addEventListener('click', (e) => {
+    if (e.target.classList.contains('remove-module-btn')) {
+      const row = e.target.closest('.module-row');
+      if (row && moduleCount() > MIN_MODULES) { // Enforce minimum of 4
+        row.remove();
+        // Re-index remaining rows after removal (optional, but good for sequential numbering)
+        modulesTableBody.querySelectorAll('.module-row').forEach((r, i) => {
+            const newIdx = i + 1;
+            r.dataset.index = newIdx;
+            r.querySelector('td:first-child').innerHTML = newIdx;
+            // Note: Renaming inputs is not strictly necessary for form submission but is better practice.
+            // For simplicity here, we rely on Django to process the submitted keys.
+        });
+      } else if (row) {
+        alert(`Minimum ${MIN_MODULES} modules required.`);
+      }
+    }
+  });
+
+
+  // --- Reusable Row Removal for dynamic lists ---
+  function createRemoveButton() {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'remove-dynamic-row-btn'; // Generic class for all list removals
+    btn.innerHTML = '&times;';
+    btn.style.cssText = 'color:red;background:none;border:none;cursor:pointer;font-weight:bold;font-size:1.2em;line-height:1;padding:0 5px;border-radius: 4px;';
+    return btn;
+  }
+
+  // General delegated removal handler for book/ebook/mooc rows
+  document.addEventListener('click', (e) => {
+    if (e.target.classList.contains('remove-dynamic-row-btn')) {
+        const row = e.target.closest('tr');
+        if (row) {
+            row.remove();
+            // Re-index the table rows immediately after removal
+            const tableBody = row.parentNode;
+            let index = 1;
+            for (const child of tableBody.children) {
+                if (child.tagName === 'TR') {
+                    child.dataset.index = index;
+                    // Update the displayed number in the first cell
+                    const numCell = child.querySelector('td:first-child');
+                    if (numCell) numCell.textContent = index;
+                    index++;
+                }
+            }
+        }
+    }
+  });
+
+
+  // --- Books dynamic functions (Now generates TRs) ---
+  const createBookRow = (prefix, idx, title = '', authors = '', edition = '', publisher = '', year = '') => {
+      const tr = document.createElement('tr');
+      tr.className = `${prefix}-row`;
+      tr.dataset.index = idx;
+      tr.innerHTML = `
+          <td style="padding:6px; border:1px solid #ddd; text-align:center;">${idx}</td>
+          <td style="padding:6px; border:1px solid #ddd;"><input name="${prefix}_title_${idx}" placeholder="Book Title" value="${title}" style="width:100%;padding:4px;box-sizing:border-box;" /></td>
+          <td style="padding:6px; border:1px solid #ddd;"><input name="${prefix}_authors_${idx}" placeholder="Authors" value="${authors}" style="width:100%;padding:4px;box-sizing:border-box;" /></td>
+          <td style="padding:6px; border:1px solid #ddd;"><input name="${prefix}_edition_${idx}" placeholder="Edition" value="${edition}" style="width:100%;padding:4px;text-align:center;box-sizing:border-box;" /></td>
+          <td style="padding:6px; border:1px solid #ddd;"><input name="prescribed_publisher_${idx}" placeholder="Publisher" value="${publisher}" style="width:100%;padding:4px;box-sizing:border-box;" /></td>
+          <td style="padding:6px; border:1px solid #ddd;"><input name="${prefix}_year_${idx}" placeholder="Year" value="${year}" style="width:100%;padding:4px;text-align:center;box-sizing:border-box;" /></td>
+          <td style="padding:6px; border:1px solid #ddd; text-align:center;"></td>
+      `;
+      // Append the remove button to the last cell
+      tr.querySelector('td:last-child').appendChild(createRemoveButton());
+      return tr;
+  };
+
+  function addBook(containerId, prefix) {
+    const cont = document.getElementById(containerId);
+    const idx = cont.children.length + 1;
+    cont.appendChild(createBookRow(prefix, idx));
+  }
+  document.getElementById('add-prescribed').addEventListener('click', () => addBook('prescribed-books','prescribed'));
+  document.getElementById('add-reference').addEventListener('click', () => addBook('reference-books','reference'));
+
+
+  // --- Ebooks & MOOC dynamic functions (Now generates TRs) ---
+  const createSimpleListRow = (containerId, namePrefix, placeholder, idx, value = '') => {
+    const tr = document.createElement('tr');
+    tr.className = `${namePrefix}-row`;
+    tr.dataset.index = idx;
+    tr.innerHTML = `
+        <td style="padding:6px; border:1px solid #ddd; text-align:center;">${idx}</td>
+        <td style="padding:6px; border:1px solid #ddd;">
+            <input name="${namePrefix}_${idx}" placeholder="${placeholder}" value="${value}" style="width:100%;padding:4px;box-sizing:border-box;" />
+        </td>
+        <td style="padding:6px; border:1px solid #ddd; text-align:center;"></td>
+    `;
+    tr.querySelector('td:last-child').appendChild(createRemoveButton());
+    return tr;
+  };
+
+  function addSimpleList(containerId, namePrefix, placeholder) {
+    const cont = document.getElementById(containerId);
+    const idx = cont.children.length + 1;
+    cont.appendChild(createSimpleListRow(containerId, namePrefix, placeholder, idx));
+  }
+  document.getElementById('add-ebook').addEventListener('click', () => addSimpleList('ebooks-list','ebook','E-Book URL / details'));
+  document.getElementById('add-mooc').addEventListener('click', () => addSimpleList('mooc-list','mooc','MOOC URL / details'));
+
+
+  // --- Lab Plan dynamic functions (Now generates TRs) ---
+  const createLabItemRow = (idx, details = '') => {
+    const tr = document.createElement('tr');
+    tr.className = 'lab-item-row';
+    tr.dataset.index = idx;
+    tr.innerHTML = `
+      <td style="padding:6px; border:1px solid #ddd; text-align:center; font-weight:bold;">${idx}</td>
+      <td style="padding:6px; border:1px solid #ddd;">
+          <textarea name="lab_item_${idx}" rows="2" placeholder="Program Details" style="width:100%;padding:4px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;">${details}</textarea>
+      </td>
+      <td style="padding:6px; border:1px solid #ddd; text-align:center;"></td>
+    `;
+    tr.querySelector('td:last-child').appendChild(createRemoveButton());
+    return tr;
+  };
+  
+  document.getElementById('add-lab-item').addEventListener('click', () => {
+    const idx = labTableBody.children.length + 1;
+    // Check if the placeholder row exists and remove it before adding a new item (optional)
+    const existingRows = labTableBody.querySelectorAll('.lab-item-row');
+    if (existingRows.length === 1 && existingRows[0].querySelector('textarea').value === '') {
+        existingRows[0].remove();
+    }
+    labTableBody.appendChild(createLabItemRow(labTableBody.children.length + 1));
+  });
+
+  // --- Assessment Table dynamic functions ---
+  const addAssessmentBtn = document.getElementById('add-assessment-row');
+  let assessmentIndex = assessmentTableBody.querySelectorAll('.assessment-row').length + 1;
+  
+  const addAssessmentRow = () => {
+    const tr = document.createElement('tr');
+    tr.className = 'assessment-row';
+    tr.dataset.index = assessmentIndex;
+    tr.innerHTML = `<td style="padding:6px;border:1px solid #eee"><input name="tool_${assessmentIndex}" style="width:100%;padding:4px;box-sizing:border-box;"></td>
+      <td style="padding:6px;border:1px solid #eee"><textarea name="remarks_${assessmentIndex}" rows="2" style="width:100%;padding:4px;box-sizing:border-box;"></textarea></td>
+      <td style="padding:6px;border:1px solid #eee"><input name="marks_${assessmentIndex}" style="width:100%;padding:4px;box-sizing:border-box;"></td>
+      <td style="padding:6px;border:1px solid #eee;text-align:center"><button type="button" class="remove-assessment-btn" style="color:red;background:none;border:none;cursor:pointer;border-radius: 4px;">&times;</button></td>`;
+    assessmentTableBody.appendChild(tr);
+    assessmentIndex++;
+  }
+  addAssessmentBtn.addEventListener('click', addAssessmentRow);
+
+  // General removal listener for assessment rows
+  assessmentTableBody.addEventListener('click', (e) => {
+    if (e.target.classList.contains('remove-assessment-btn')) {
+      const row = e.target.closest('.assessment-row');
+      if (row) row.remove();
+    }
+  });
+
+
+  // --- Course Articulation Matrix builder ---
+  const matrixTable = document.getElementById('matrix-table');
+  function refreshMatrix() {
+    // Collect CO text from current inputs inside the table body
+    const coInputs = Array.from(document.querySelectorAll('#cos-table-body .co-input')).map((el,i)=>({el, text:el.value.trim() || `CO ${i+1}`}));
+    const POcount = 12;
+    const PSOcount = 2;
+
+    // Clear and build header
+    matrixTable.innerHTML = '';
+    const thead = document.createElement('thead');
+    const headTr = document.createElement('tr');
+    headTr.innerHTML = `<th style="padding:8px;border:1px solid #eee;background:#eef2ff;">CO\\PO</th>`;
+    for (let i=1;i<=POcount;i++) headTr.innerHTML += `<th style="padding:8px;border:1px solid #eee;background:#eef2ff;width:50px;">PO${i}</th>`;
+    for (let j=1;j<=PSOcount;j++) headTr.innerHTML += `<th style="padding:8px;border:1px solid #eee;background:#eef2ff;width:50px;">PSO${j}</th>`;
+    thead.appendChild(headTr);
+    matrixTable.appendChild(thead);
+    
+    // Build body rows
+    const tbody = document.createElement('tbody');
+    coInputs.forEach((co, idx) => {
+      const coIndex = idx + 1;
+      const tr = document.createElement('tr');
+      // Use the CO description as the row header
+      tr.innerHTML = `<td style="padding:6px;border:1px solid #eee;font-weight:600;min-width:150px;">CO ${coIndex}: ${co.text}</td>`;
+
+      for (let i=1;i<=POcount+PSOcount;i++) {
+        // Naming convention: matrix_{CO_index}_{PO_or_PSO_index}
+        tr.innerHTML += `<td style="padding:6px;border:1px solid #eee;text-align:center;"><input name="matrix_${coIndex}_${i}" style="width:30px;padding:4px;text-align:center;border:1px solid #ddd;border-radius:3px;box-sizing:border-box;" placeholder="" maxlength="1" pattern="[1-3]?" /></td>`;
+      }
+      tbody.appendChild(tr);
+    });
+    matrixTable.appendChild(tbody);
+  }
+  
+  // --- Initialization & Setup ---
+  updateHours(); // Call initially to set hours and toggle lab section
+  refreshMatrix(); // Ensure the matrix is built on load
+
+  // Attach listeners so changes to L/T/P update Hours/Week immediately
+  [lEl, tEl, pEl].forEach(el => el && el.addEventListener('input', updateHours));
+
+  // --- Form Client Validation on Submit ---
+  form.addEventListener('submit', function(e){
+    // 1. Minimum 3 COs 
+    if (coCount() < MIN_COS) { 
+      alert(`At least ${MIN_COS} Course Outcomes (COs) are required.`); 
+      e.preventDefault(); 
+      return; 
+    }
+    
+    // 2. Modules >= 4 (Updated validation check)
+    if (moduleCount() < MIN_MODULES) { 
+      alert(`At least ${MIN_MODULES} modules are required in the Module-wise Breakdown.`); 
+      e.preventDefault(); 
+      return; 
+    }
+    
+    // 3. Lab/Activity Rule
+    const p = Number(pEl?.value || 0);
+    const labRows = labTableBody.querySelectorAll('.lab-item-row');
+    
+    if (p > 0) {
+      // Check if there are any non-empty lab rows
+      const hasContent = Array.from(labRows).some(row => row.querySelector('textarea').value.trim() !== '');
+      
+      if (!hasContent) { 
+        alert('Practical hours are present (P>0). Please add at least one Laboratory Plan item with details.'); 
+        e.preventDefault(); 
+        return; 
+      }
+    } else {
+      // If P=0, check if there is an activity component in the assessment 
+      if (assessmentTableBody.querySelectorAll('.assessment-row').length < 2) { 
+         alert('No practical (P=0). Please ensure the Proposed Assessment Plan includes sufficient non-test activities (like AAT/Projects) by adding relevant rows.'); 
+         e.preventDefault(); 
+         return; 
+      }
+    }
+  });
+
+  // --- Laboratory Plan Setup (Table structure added, setting up for dynamic append) ---
+  // The default placeholder row is now handled dynamically in JS and is added if no data exists.
+  if (labTableBody.children.length === 0) {
+    labTableBody.appendChild(createLabItemRow(1));
+  }
+
+})();
+</script>
+{% endblock %}

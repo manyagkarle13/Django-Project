@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>College Level Courses – MCE Hassan</title>
+{% load static %}
+<style>
+    body {
+        font-family: "Times New Roman", serif;
+        font-size: 12pt;
+        margin: 25px 35px;
+        color: #000;
+    }
+
+    .center { text-align: center; }
+
+    .logo {
+        width: 80px;
+        height: 80px;
+    }
+
+    .college-title {
+        font-size: 18pt;
+        font-weight: bold;
+        margin-top: 6px;
+    }
+
+    .subtitle {
+        font-size: 11pt;
+        margin-top: 4px;
+    }
+
+    hr { border: 0; border-top: 1px solid #000; margin: 10px 0; }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 12px;
+    }
+
+    table th, table td {
+        border: 1px solid #000;
+        padding: 6px;
+    }
+
+    table th {
+        background: #f2f2f2;
+        font-weight: bold;
+        text-align: center;
+    }
+
+    .meta {
+        margin-top: 20px;
+        font-size: 11pt;
+    }
+</style>
+</head>
+
+<body>
+
+    <!-- HEADER -->
+    <table width="100%">
+        <tr>
+            <td width="15%" class="center">
+                <img src="{% static 'images/mce_logo.png' %}" class="logo">
+            </td>
+
+            <td width="70%" class="center">
+                <div class="college-title">MALNAD COLLEGE OF ENGINEERING, HASSAN</div>
+                <div class="subtitle">(An Autonomous Institution Affiliated to VTU, Belagavi)</div>
+                <div class="subtitle">{{ branch.name|default:"Department" }}</div>
+            </td>
+
+            <td width="15%"></td>
+        </tr>
+    </table>
+
+    <hr>
+
+    <h3 class="center">COLLEGE LEVEL COURSES – REPORT</h3>
+
+    <!-- TABLE -->
+    <table>
+        <thead>
+            <tr>
+                <th width="12%">Course Code</th>
+                <th width="46%">Course Title</th>
+                <th width="12%">Category</th>
+                <th width="10%">CIE</th>
+                <th width="10%">SEE</th>
+                <th width="10%">Credits</th>
+            </tr>
+        </thead>
+
+        <tbody>
+            {% for course in courses %}
+            <tr>
+                <td class="center">{{ course.course_code }}</td>
+                <td>{{ course.course_title }}</td>
+                <td class="center">{{ course.course_category }}</td>
+                <td class="center">{{ course.cie_marks }}</td>
+                <td class="center">{{ course.see_marks }}</td>
+                <td class="center">{{ course.credits }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="6" class="center">No courses available</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="meta">
+        Generated on: {{ now|date:"F j, Y" }}
+    </div>
+
+</body>
+</html>

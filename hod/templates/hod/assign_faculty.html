@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="max-width:1100px;margin:30px auto;background:#fff;padding:22px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">
+  <h2 style="margin-bottom:8px;color:#333;">Faculty Assignments</h2>
+  <p style="color:#666;margin-top:0;font-size:14px;">Courses you (HOD) have assigned to faculty. Click an assignment to view details.</p>
+
+  {% if messages %}
+    <div style="margin-bottom:16px;">
+      {% for message in messages %}
+        <div style="padding:12px;border-radius:4px;{% if message.tags %}background:{% if 'success' in message.tags %}#d4edda;color:#155724;border:1px solid #c3e6cb{% elif 'error' in message.tags %}#f8d7da;color:#721c24;border:1px solid #f5c6cb{% else %}#d1ecf1;color:#0c5460;border:1px solid #bee5eb{% endif %}{% endif %};">
+          {{ message }}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if assignments %}
+  <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;margin-top:12px;">
+      <thead>
+        <tr style="background:#f4f6f8;border-bottom:2px solid #ddd;">
+          <th style="padding:12px;text-align:left;font-weight:600;">#</th>
+          <th style="padding:12px;text-align:left;font-weight:600;">Faculty Name</th>
+          <th style="padding:12px;text-align:left;font-weight:600;">Faculty Email</th>
+          <th style="padding:12px;text-align:left;font-weight:600;">Course Code</th>
+          <th style="padding:12px;text-align:left;font-weight:600;">Course Title</th>
+          <th style="padding:12px;text-align:left;font-weight:600;">Category</th>
+          <th style="padding:12px;text-align:left;font-weight:600;">Assigned On</th>
+          <th style="padding:12px;text-align:center;font-weight:600;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in assignments %}
+        <tr style="border-bottom:1px solid #eee;{% cycle 'background:#fff' 'background:#f9fafb' %};">
+          <td style="padding:12px;">{{ forloop.counter }}</td>
+          <td style="padding:12px;">
+            {% if a.faculty and a.faculty.user %}
+              <strong>{{ a.faculty.user.get_full_name|default:a.faculty.user.username }}</strong>
+            {% else %}
+              <em style="color:#999;">N/A</em>
+            {% endif %}
+          </td>
+          <td style="padding:12px;">
+            {% if a.faculty and a.faculty.user %}
+              {{ a.faculty.user.email|default:"—" }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td style="padding:12px;font-family:monospace;font-weight:500;">{{ a.course_allocation.course_code }}</td>
+          <td style="padding:12px;">{{ a.course_allocation.course_title }}</td>
+          <td style="padding:12px;">
+            <span style="display:inline-block;padding:4px 8px;background:#e3f2fd;color:#1976d2;border-radius:3px;font-size:12px;font-weight:500;">
+              {{ a.course_allocation.course_category|default:"—" }}
+            </span>
+          </td>
+          <td style="padding:12px;font-size:13px;color:#666;">{{ a.assigned_on|date:"d M Y H:i" }}</td>
+          <td style="padding:12px;text-align:center;">
+            <a href="{% url 'hod:edit_assignment' a.id %}" style="display:inline-block;padding:6px 12px;background:#1976d2;color:#fff;border-radius:4px;text-decoration:none;font-size:13px;font-weight:500;margin-right:6px;">Edit</a>
+            <form method="post" action="{% url 'hod:remove_assignment' a.id %}" style="display:inline-block;" onsubmit="return confirm('Remove this assignment?');">
+              {% csrf_token %}
+              <button type="submit" style="padding:6px 12px;background:#d32f2f;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;font-weight:500;">Remove</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <div style="padding:24px;color:#666;border:1px dashed #ccc;border-radius:6px;margin-top:20px;text-align:center;background:#f9fafb;">
+      <p style="margin:0;font-size:14px;">📋 No faculty assignments found.</p>
+      <p style="margin:8px 0 0 0;font-size:13px;color:#999;">Assign faculty from the <strong>Create Scheme</strong> page and they will appear here.</p>
+    </div>
+  {% endif %}
+
+  <div style="margin-top:20px;padding-top:16px;border-top:1px solid #eee;">
+    <a href="{% url 'hod:hod_dashboard' %}" style="display:inline-block;padding:10px 16px;background:#f5f5f5;color:#333;border-radius:4px;text-decoration:none;font-weight:500;">← Back to Dashboard</a>
+  </div>
+</div>
+{% endblock %}

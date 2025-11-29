@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Assign Faculty to Subjects</h2>
+<form method="post">{% csrf_token %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Scheme</th><th>Sem</th><th>Sl</th><th>Code</th><th>Title</th><th>Assign Faculty</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in subjects %}
+      <tr>
+        <td>{{ s.scheme.scheme_name }}</td>
+        <td>{{ s.semester }}</td>
+        <td>{{ s.sl_no }}</td>
+        <td>{{ s.course_code }}</td>
+        <td>{{ s.course_title }}</td>
+        <td>
+          <select name="assign_{{ s.id }}">
+            <option value="">-- Unassigned --</option>
+            {% for f in faculties %}
+             <option value="{{ f.id }}" {% if s.assigned_faculty and s.assigned_faculty.id == f.id %}selected{% endif %}>{{ f.get_full_name|default:f.username }} ({{ f.email }})</option>
+            {% endfor %}
+          </select>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <button class="btn btn-success" type="submit">Save assignments</button>
+</form>
+{% endblock %}

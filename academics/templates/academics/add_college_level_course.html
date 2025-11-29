@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Edit College Level Course — MCE{% endblock %}
+
+{% block content %}
+<style>
+  .card {
+    max-width: 980px;
+    margin: 20px auto;
+    background: #fff;
+    padding: 22px;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+  }
+  label {
+    display: block;
+    margin-top: 10px;
+    font-weight: 600;
+  }
+  input, select, textarea {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    margin-top: 6px;
+    box-sizing: border-box;
+  }
+  .row {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  .col-2 {
+    flex: 1 1 48%;
+  }
+  .small {
+    font-size: 13px;
+    color: #666;
+    margin-top: 4px;
+    display: block;
+  }
+  .actions {
+    margin-top: 16px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .btn-save {
+    background: #b72b3f;
+    color: #fff;
+  }
+  .btn-save:hover {
+    background: #9f2436;
+  }
+  .btn-gen {
+    background: #9d2330;
+    color: #fff;
+  }
+  .btn-gen:hover {
+    background: #7d1a24;
+  }
+  .link {
+    color: #123e77;
+    text-decoration: underline;
+    font-size: 13px;
+  }
+</style>
+
+<div class="card">
+  <h1 style="margin: 0 0 8px">{% if editing %}Edit{% else %}Add{% endif %} College Level Course</h1>
+  <p class="small">Manage course details. College-level courses apply to <strong>All Branches</strong>.</p>
+
+  <form method="post" action="">
+    {% csrf_token %}
+
+    <label for="id_course_type">Course Type</label>
+    <select id="id_course_type" name="course_type" required>
+      <option value="">-- Select Course Type --</option>
+      <option value="PCC" {% if course.course_category == 'PCC' %}selected{% endif %}>(PCC) Professional Core Course</option>
+      <option value="PEC" {% if course.course_category == 'PEC' %}selected{% endif %}>(PEC) Professional Elective Course</option>
+      <option value="OEC" {% if course.course_category == 'OEC' %}selected{% endif %}>(OEC) Open Elective Course</option>
+      <option value="HSMC" {% if course.course_category == 'HSMC' %}selected{% endif %}>(HSMC) Humanities and Social Sciences</option>
+      <option value="BSC" {% if course.course_category == 'BSC' %}selected{% endif %}>(BSC) Basic Science Course</option>
+      <option value="ESC" {% if course.course_category == 'ESC' %}selected{% endif %}>(ESC) Engineering Science Course</option>
+      <option value="AEC" {% if course.course_category == 'AEC' %}selected{% endif %}>(AEC) Ability Enhancement Course</option>
+      <option value="SEC" {% if course.course_category == 'SEC' %}selected{% endif %}>(SEC) Skill Enhancement Course</option>
+      <option value="ETC" {% if course.course_category == 'ETC' %}selected{% endif %}>(ETC) Emerging Technology Course</option>
+      <option value="PLC" {% if course.course_category == 'PLC' %}selected{% endif %}>(PLC) Programming Language Course</option>
+      <option value="PCCL" {% if course.course_category == 'PCCL' %}selected{% endif %}>(PCCL) Professional Core Course Laboratory</option>
+    </select>
+
+    <div class="row">
+      <div class="col-2">
+        <label for="id_code">Course code</label>
+        <input id="id_code" name="code" type="text" value="{{ course.course_code|default:'' }}" required>
+      </div>
+      <div class="col-2">
+        <label for="id_semester">Semester</label>
+        <select id="id_semester" name="semester">
+          <option value="">-- Select Semester --</option>
+          {% for i in "12345678"|make_list %}
+            <option value="{{ i }}" {% if course.semester|stringformat:"s" == i|stringformat:"s" %}selected{% endif %}>Semester {{ i }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <label for="id_title">Course title</label>
+    <input id="id_title" name="title" type="text" value="{{ course.course_title|default:'' }}" required>
+
+    <div class="row">
+      <div class="col-2">
+        <label for="id_l">L (Lecture)</label>
+        <input id="id_l" name="l" type="number" min="0" value="{{ course.teaching_hours_L|default:0 }}">
+      </div>
+      <div class="col-2">
+        <label for="id_t">T (Tutorial)</label>
+        <input id="id_t" name="t" type="number" min="0" value="{{ course.teaching_hours_T|default:0 }}">
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col-2">
+        <label for="id_p">P (Practical)</label>
+        <input id="id_p" name="p" type="number" min="0" value="{{ course.teaching_hours_P|default:0 }}">
+      </div>
+      <div class="col-2">
+        <label for="id_credits">Credits</label>
+        <input id="id_credits" name="credits" type="number" min="0" step="0.5" value="{{ course.credits|default:'' }}" required>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col-2">
+        <label for="id_cie">CIE marks</label>
+        <input id="id_cie" name="cie_marks" type="text" value="{{ course.cie_marks|default:50 }}">
+      </div>
+      <div class="col-2">
+        <label for="id_see">SEE marks</label>
+        <input id="id_see" name="see_marks" type="text" value="{{ course.see_marks|default:50 }}">
+      </div>
+    </div>
+
+    <label for="id_description">Short description / remarks</label>
+    <textarea id="id_description" name="description" rows="3">{{ course.description|default:'' }}</textarea>
+
+    <div class="actions">
+      <button class="btn btn-save" type="submit" name="action" value="save">Save</button>
+      <button class="btn btn-gen" type="submit" name="action" value="generate">Save & Generate PDF</button>
+      <a class="link" href="{% url 'academics:dean_dashboard' %}">Cancel / Back</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

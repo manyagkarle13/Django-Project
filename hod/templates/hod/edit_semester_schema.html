@@ -1,0 +1,15 @@
+{% load static %}
+<!doctype html><html><head><meta charset="utf-8"><title>Edit Semester Schema</title></head><body>
+  <h2>Manage Schema — {{ branch.name }} — Year {{ year }} — Semester {{ semester }}</h2>
+  {% if subjects %}
+    <p>Subjects for semester {{ semester }}:</p>
+    <ul>
+      {% for sub in subjects %}
+        <li>{{ sub.subject_code }} — {{ sub.title }} &nbsp; <a href="{% url 'hod:edit_schema' sub.pk %}">Edit</a></li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>No subjects found for this semester. You can add subjects or create schema manually.</p>
+  {% endif %}
+  <p><a href="{% url 'hod:dashboard_self' branch.pk %}?year={{ year }}">Back to dashboard</a></p>
+</body></html>

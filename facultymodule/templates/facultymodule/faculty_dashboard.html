@@ -1,0 +1,194 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Faculty Dashboard | MCE Syllabus Maker</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --mce-blue: #123e77;
+      --mce-red: #b72b3f;
+      --muted: #6b7378;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Roboto, Arial, sans-serif;
+      background: #f4f6f8;
+      color: #222;
+    }
+    .topbar {
+      background: var(--mce-blue);
+      color: #fff;
+      padding: 6px 14px;
+      font-size: 13px;
+      text-align: center;
+    }
+    header.site {
+      background: #fff;
+      border-bottom: 4px solid #eee;
+    }
+    .wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand img {
+      height: 68px;
+      width: auto;
+      display: block;
+    }
+    .brand .title { font-weight: 700; color: var(--mce-blue); font-size: 18px; }
+    .brand .sub { font-size: 13px; color: var(--muted); }
+    .hero {
+      background-image: linear-gradient(rgba(18,62,119,0.55), rgba(18,62,119,0.55)), url("{% static 'images/images.jpg' %}");
+      background-size: cover;
+      background-position: center;
+      padding: 36px 0;
+      color: #fff;
+    }
+    .hero-inner { max-width:1200px;margin:0 auto;padding:0 16px;display:flex;align-items:center;justify-content:space-between;gap:16px; }
+    .hero-text h1 { margin:0;font-size:24px;font-weight:700; }
+    .hero-text p { margin:6px 0 0;color:rgba(255,255,255,0.95);font-size:14px; }
+    main.container { max-width:1100px;margin:22px auto;padding:0 16px; }
+    .card { background:#fff;border-radius:10px;padding:24px;box-shadow:0 8px 24px rgba(0,0,0,0.06);margin-bottom:20px; }
+    .grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px;margin-top:16px; }
+    .btn { padding:10px 14px;background:var(--mce-red);color:#fff;border-radius:6px;border:0;cursor:pointer;font-weight:600;text-decoration:none;display:inline-block; }
+    .btn:hover { opacity:0.9; }
+    .btn-outline-primary {
+      padding: 10px 14px;
+      background: transparent;
+      color: var(--mce-blue);
+      border: 2px solid var(--mce-blue);
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      text-align: center;
+      display: inline-block;
+      transition: all 0.3s ease;
+    }
+    .btn-outline-primary:hover {
+      background: var(--mce-blue);
+      color: #fff;
+    }
+    table { width:100%;border-collapse:collapse;font-size:13px;margin-top:8px; }
+    th, td { padding:10px;text-align:left;border-bottom:1px solid #eee; }
+    th { background:#f4f6f8;font-weight:600; }
+    .small-muted { color:var(--muted); font-size:13px; }
+    h2 { margin:0 0 8px;color:#222;font-size:22px; }
+    .messages { margin-bottom:16px; }
+    .messages > div { padding:12px 14px;border-radius:4px;margin-bottom:8px; }
+    .messages .success { background:#d4edda;color:#155724;border:1px solid #c3e6cb; }
+    .messages .error { background:#f8d7da;color:#721c24;border:1px solid #f5c6cb; }
+    .logout-btn { background:#444;padding:8px 12px;color:#fff;border-radius:6px;border:0;cursor:pointer; }
+  </style>
+</head>
+<body>
+  <div class="topbar">Affiliated to Visvesvaraya Technological University | Accredited by AICTE, NBA</div>
+
+  <header class="site">
+    <div class="wrap">
+      <div class="brand">
+        <img src="{% static 'images/malnad_college_of_engineering_logo.jpeg' %}" alt="MCE Logo">
+        <div>
+          <div class="title">MCE Syllabus Maker</div>
+          <div class="sub">Faculty Module</div>
+        </div>
+      </div>
+      <div>
+        <form method="post" action="/logout/" style="margin:0;">
+          {% csrf_token %}
+          <button type="submit" class="logout-btn">Logout</button>
+        </form>
+      </div>
+    </div>
+  </header>
+
+  <div class="hero">
+    <div class="hero-inner">
+      <div class="hero-text">
+        <h1>Faculty Dashboard</h1>
+        <p>View and manage your assigned courses and syllabi</p>
+      </div>
+    </div>
+  </div>
+
+  <main class="container">
+    <div class="card">
+      <h2>My Assigned Courses</h2>
+      <p style="margin:0;color:#666;font-size:14px;">Courses assigned to you by the HOD. Click a course to view details.</p>
+
+      {% if messages %}
+        <div class="messages" style="margin-top:16px;">
+          {% for message in messages %}
+            <div class="{% if 'success' in message.tags %}success{% elif 'error' in message.tags %}error{% endif %}">
+              {{ message }}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+
+
+      <!-- Add Syllabus Section -->
+      {% if faculty_assignments %}
+        <div style="margin-top:32px;padding-top:24px;border-top:2px solid #eee;">
+          <h3 style="font-size:16px;color:var(--mce-blue);margin:0 0 12px;border-bottom:2px solid var(--mce-blue);padding-bottom:8px;">Course Allocation Details</h3>
+          
+          <div style="overflow-x:auto;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Course Code</th>
+                  <th>Course Title</th>
+                  <th style="text-align:center;">Category</th>
+                  <th style="text-align:center;">L-T-P</th>
+                  <th style="text-align:center;">Credits</th>
+                  <th>Assigned On</th>
+                  <th style="text-align:center;">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for fa in faculty_assignments %}
+                <tr>
+                  <td style="font-family:monospace;font-weight:500;">{{ fa.course_allocation.course_code }}</td>
+                  <td>{{ fa.course_allocation.course_title }}</td>
+                  <td style="text-align:center;">
+                    <span style="display:inline-block;padding:4px 8px;background:#e8f5e9;color:#2e7d32;border-radius:3px;font-size:12px;font-weight:500;">
+                      {{ fa.course_allocation.course_category }}
+                    </span>
+                  </td>
+                  <td style="text-align:center;">
+                    {{ fa.course_allocation.teaching_hours_L }}-{{ fa.course_allocation.teaching_hours_T }}-{{ fa.course_allocation.teaching_hours_P }}
+                  </td>
+                  <td style="text-align:center;">{{ fa.course_allocation.credits }}</td>
+                  <td>{{ fa.assigned_on|date:"d M Y H:i" }}</td>
+                  <td style="text-align:center;">
+                    <a href="{% url 'facultymodule:add_syllabus' fa.course_allocation.id %}" class="btn" style="padding:6px 12px;font-size:12px;background:var(--mce-blue);">Add Syllabus</a>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      {% endif %}
+    </div>
+
+    <div style="margin-top:24px;padding:16px;text-align:center;">
+      <a href="/" class="btn-outline-primary">← Back to Home</a>
+    </div>
+  </main>
+</body>
+</html>

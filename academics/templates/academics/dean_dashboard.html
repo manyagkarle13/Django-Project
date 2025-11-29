@@ -1,0 +1,268 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dean Dashboard | MCE Syllabus Maker</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --mce-blue: #123e77;
+      --mce-red: #b72b3f;
+      --muted: #6b7378;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Roboto, Arial, sans-serif;
+      background: #f4f6f8;
+      color: #222;
+    }
+    .topbar {
+      background: var(--mce-blue);
+      color: #fff;
+      padding: 6px 14px;
+      font-size: 13px;
+      text-align: center;
+    }
+    header.site {
+      background: #fff;
+      border-bottom: 4px solid #eee;
+    }
+    .wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand img {
+      height: 68px;
+      width: auto;
+      display: block;
+    }
+    .brand .title {
+      font-weight: 700;
+      color: var(--mce-blue);
+      font-size: 18px;
+    }
+    .brand .sub {
+      font-size: 13px;
+      color: var(--muted);
+    }
+    nav {
+      margin-top: 6px;
+      background: transparent;
+    }
+    .hero {
+      background-image: linear-gradient(rgba(18,62,119,0.55), rgba(18,62,119,0.55)), url("{% static 'images/images.jpg' %}");
+      background-size: cover;
+      background-position: center;
+      padding: 36px 0;
+      color: #fff;
+    }
+    .hero-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .hero-text h1 {
+      margin: 0;
+      font-size: 24px;
+      font-weight: 700;
+    }
+    .hero-text p {
+      margin: 6px 0 0;
+      color: rgba(255,255,255,0.95);
+      font-size: 14px;
+    }
+    main.container {
+      max-width: 1100px;
+      margin: 22px auto;
+      padding: 0 16px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 10px;
+      padding: 24px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.06);
+      margin-bottom: 20px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 18px;
+      margin-top: 16px;
+    }
+    .action {
+      background: linear-gradient(180deg, #fff, #f9fbff);
+      border: 1px solid #eef3fb;
+      padding: 20px;
+      border-radius: 10px;
+      text-decoration: none;
+      color: var(--mce-blue);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: flex-start;
+      transition: 0.2s;
+    }
+    .action:hover {
+      background: #eef3fb;
+    }
+    .action h3 {
+      margin: 0;
+      font-size: 16px;
+    }
+    .action p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .primary {
+      display: inline-block;
+      padding: 10px 14px;
+      background: var(--mce-red);
+      color: #fff;
+      border-radius: 6px;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .meta {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .logout-btn {
+      background: #444;
+      padding: 8px 12px;
+      color: #fff;
+      border-radius: 6px;
+      border: 0;
+      cursor: pointer;
+    }
+    .table-responsive {
+      overflow-x: auto;
+      margin-top: 12px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      padding: 10px;
+      text-align: left;
+      border-bottom: 1px solid #eee;
+    }
+    th {
+      background: #f4f6f8;
+      font-weight: 600;
+    }
+    .btn-sm {
+      padding: 6px 10px;
+      font-size: 12px;
+      border-radius: 4px;
+      text-decoration: none;
+      display: inline-block;
+      margin-right: 4px;
+    }
+    .btn-primary {
+      background: var(--mce-blue);
+      color: #fff;
+    }
+    .btn-danger {
+      background: var(--mce-red);
+      color: #fff;
+    }
+    @media (max-width: 700px) {
+      .hero-inner { flex-direction: column; gap: 12px; }
+      .brand img { height: 56px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    Affiliated to Visvesvaraya Technological University | Accredited by AICTE, NBA
+  </div>
+
+  <header class="site">
+    <div class="wrap">
+      <div class="brand">
+        <img src="{% static 'images/malnad_college_of_engineering_logo.jpeg' %}" alt="MCE Logo">
+        <div>
+          <div class="title">Malnad College of Engineering</div>
+          <div class="sub">Syllabus Maker — Dean Dashboard</div>
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-weight:600">{{ user.get_full_name|default:user.username }}</div>
+        <form method="post" action="{% url 'users:logout' %}" style="display:inline">
+          {% csrf_token %}
+          <button type="submit" class="logout-btn">Logout</button>
+        </form>
+      </div>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="hero-inner">
+      <div class="hero-text">
+        <h1>Welcome, Dean</h1>
+        <p>Manage college level courses and semester credit schemes. Use the actions below to update academic data and publish official documents.</p>
+      </div>
+    </div>
+  </section>
+
+  <main class="container">
+    <div class="card">
+      <h2 style="margin:0 0 8px">Dean Controls</h2>
+      <p style="margin:0;color:var(--muted)">Quick access to frequently used dean functions.</p>
+
+      <div class="grid">
+        <a class="action" href="{% url 'academics:add_college_level_course' %}">
+          <h3>Add College Level Course</h3>
+          <p>Create or edit college level course entries used across departments.</p>
+        </a>
+
+        <a class="action" href="{% url 'academics:add_semester_credits' %}">
+          <h3>Semester Credits</h3>
+          <p>Define credits and structure for the academic semesters.</p>
+        </a>
+
+        <a class="action" href="{% url 'academics:review_history' %}">
+          <h3>Review History</h3>
+          <p>Review, Edit, Delete the college level course, semester credits and generated syllabus.</p>
+        </a>
+
+        <a class="action" href="{% url 'academics:syllabus_list' %}">
+          <h3>College Level Course Syllabus</h3>
+          <p>Enter or edit structured syllabus for college-level courses and generate official PDFs.</p>
+        </a>
+
+        <div class="action" style="align-items:flex-end;">
+          <small style="color:var(--muted)">Need help?</small>
+          <p style="margin:4px 0 0;font-size:13px;color:var(--muted)">
+            Call: <a href="tel:+911234567890" style="color:var(--mce-blue); text-decoration: none;">+91-12345-67890</a>
+          </p>
+          <a href="https://www.mcehassan.ac.in/" target="_blank" class="primary" style="margin-top:6px">Visit MCE site</a>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</body>
+</html>

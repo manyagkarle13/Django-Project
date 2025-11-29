@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Syllabi — MCE{% endblock %}
+
+{% block content %}
+<style>
+  .card {
+    max-width: 1000px;
+    margin: 20px auto;
+    background: #fff;
+    padding: 22px;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+  }
+  .course-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    border: 1px solid #eee;
+    margin-bottom: 10px;
+    border-radius: 6px;
+    background: #fafafa;
+  }
+  .course-item:hover {
+    background: #f0f8ff;
+  }
+  .course-info {
+    flex: 1;
+  }
+  .course-code {
+    font-weight: 600;
+    font-size: 14px;
+    color: #123e77;
+  }
+  .course-title {
+    color: #333;
+    font-size: 13px;
+    margin-top: 4px;
+  }
+  .semester-badge {
+    margin-left: 10px;
+    color: #b72b3f;
+    font-weight: 600;
+    font-size: 12px;
+  }
+  .course-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .btn {
+    padding: 8px 12px;
+    background: #b72b3f;
+    color: #fff;
+    text-decoration: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .btn:hover {
+    background: #9f2436;
+  }
+  .btn-secondary {
+    background: #666;
+  }
+  .btn-secondary:hover {
+    background: #555;
+  }
+  .empty-message {
+    text-align: center;
+    color: #999;
+    padding: 40px;
+  }
+</style>
+
+<div class="card">
+  <h1 style="margin: 0 0 8px">Course Syllabi</h1>
+  <p style="color: #666; font-size: 13px; margin: 0 0 20px">Add or edit syllabi for college-level courses.</p>
+
+  <ul style="list-style: none; padding: 0; margin: 0;">
+    {% for c in courses %}
+      <li class="course-item">
+        <div class="course-info">
+          <div class="course-code">
+            {{ c.course_code }} — {{ c.course_title }}
+            {% if c.display_semester %}
+              <span class="semester-badge">• {{ c.display_semester }}</span>
+            {% endif %}
+          </div>
+          <div class="course-title">
+            {{ c.course_category }} • {{ c.department }}
+          </div>
+        </div>
+
+        <div class="course-actions">
+          <a href="{% url 'academics:add_syllabus' c.id %}" class="btn">Add / Edit Syllabus</a>
+          
+          {% with syllabus=c.syllabi.first %}
+            {% if syllabus %}
+              <a href="{% url 'academics:view_syllabus_pdf' syllabus.id %}" target="_blank" class="btn btn-secondary">View PDF</a>
+            {% endif %}
+          {% endwith %}
+        </div>
+      </li>
+    {% empty %}
+      <div class="empty-message">
+        <p>📚 No courses found. <a href="{% url 'academics:add_college_level_course' %}" style="color: #b72b3f; text-decoration: underline;">Create a course first.</a></p>
+      </div>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}

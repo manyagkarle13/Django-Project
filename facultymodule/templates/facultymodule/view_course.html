@@ -1,0 +1,15 @@
+<!-- filepath: c:\Users\manya\OneDrive\Desktop\SyllabusMaker\faculty\templates\faculty\view_course.html -->
+{% extends 'base.html' %}
+
+{% block title %}{{ course.course_code }} — Course Details{% endblock %}
+
+{% block content %}
+<div style="max-width:900px;margin:18px auto;">
+  <div style="background:#fff;padding:18px;border-radius:8px;">
+    <h1>{{ course.course_code }} — {{ course.course_title }}</h1>
+    <p><strong>Credits:</strong> {{ course.credits }}</p>
+    <p><strong>L-T-P:</strong> {{ course.teaching_hours_L }}-{{ course.teaching_hours_T }}-{{ course.teaching_hours_P }}</p>
+    <p><a href="{% url 'faculty:edit_syllabus' course.pk %}" class="btn">Edit Syllabus</a></p>
+  </div>
+</div>
+{% endblock %}

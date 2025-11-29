@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div style="max-width:600px; margin:30px auto; background:#fff; padding:30px; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,.1)">
+  <h1>Edit Faculty Assignment</h1>
+
+  <div style="background:#f5f5f5; padding:20px; border-radius:4px; margin-bottom:20px">
+    <p><strong>Course:</strong> {{ assignment.course_allocation.course_code }} - {{ assignment.course_allocation.course_title }}</p>
+    <p><strong>Current Faculty:</strong> {{ assignment.faculty.user.get_full_name }} ({{ assignment.faculty.user.email }})</p>
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+    
+    <div style="margin-bottom:20px">
+      <label style="display:block; font-weight:600; margin-bottom:8px">Select New Faculty *</label>
+      <select name="faculty_id" required style="width:100%; padding:10px; border:1px solid #ddd; border-radius:4px; box-sizing:border-box">
+        <option value="">-- Choose Faculty --</option>
+        {% for faculty in faculty_list %}
+          <option value="{{ faculty.id }}" {% if faculty.id == assignment.faculty.id %}selected{% endif %}>
+            {{ faculty.user.get_full_name }} ({{ faculty.user.email }})
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div style="display:flex; gap:10px">
+      <button type="submit" style="flex:1; padding:10px; background:#388e3c; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:600">Update Assignment</button>
+      <a href="{% url 'hod:faculty_assignment_history' %}" style="flex:1; padding:10px; background:#666; color:#fff; text-decoration:none; border-radius:4px; text-align:center; font-weight:600">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

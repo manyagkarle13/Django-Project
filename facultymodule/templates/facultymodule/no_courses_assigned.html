@@ -1,0 +1,12 @@
+<!-- filepath: c:\Users\manya\OneDrive\Desktop\SyllabusMaker\faculty\templates\faculty\no_courses_assigned.html -->
+{% extends 'base.html' %}
+
+{% block title %}No Courses Assigned{% endblock %}
+
+{% block content %}
+<div style="max-width:900px;margin:40px auto;padding:24px;background:#fff;border-radius:8px;">
+  <h2 style="color:#0b2a4a;">No Courses Assigned</h2>
+  <p>You do not have any courses assigned yet. Please contact your HOD to assign you courses for syllabus filling.</p>
+  <p><a href="{% url 'users:home' %}" style="color:#1976d2;">Return to Home</a></p>
+</div>
+{% endblock %}
