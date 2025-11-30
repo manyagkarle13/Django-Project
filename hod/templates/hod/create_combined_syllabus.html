@@ -1,0 +1,37 @@
+<form method="post" action="{% url 'hod:generate_combined_syllabus' branch.pk %}">
+  {% csrf_token %}
+  <h4>Select parts to include in combined PDF</h4>
+
+  <fieldset>
+    <legend>Scheme PDFs (choose at least one if needed)</legend>
+    {% for s in scheme_pdfs %}
+      <label>
+        <input type="checkbox" name="scheme_pdf_ids" value="{{ s.pk }}">
+        {{ s.title|default:"Scheme " }} — {{ s.created_at|date:"d M Y" }}
+      </label><br>
+    {% empty %}
+      <p style="color:#666">No scheme PDFs available for this year/semester.</p>
+    {% endfor %}
+  </fieldset>
+
+  <fieldset style="margin-top:12px;">
+    <legend>Approved Faculty PDFs</legend>
+    {% for f in faculty_pdfs %}
+      {% if f.approved %}
+        <label>
+          <input type="checkbox" name="faculty_pdf_ids" value="{{ f.pk }}">
+          {{ f.created_by.get_full_name|default:f.created_by.username }} — {{ f.pdf_file.name|default:"PDF" }}
+        </label><br>
+      {% endif %}
+    {% empty %}
+      <p style="color:#666">No approved faculty PDFs available.</p>
+    {% endfor %}
+  </fieldset>
+
+  <input type="hidden" name="year" value="{{ selected_year }}">
+  <input type="hidden" name="semester" value="{{ selected_semester }}">
+
+  <div style="margin-top:12px;">
+    <button class="btn" type="submit">Generate combined syllabus PDF</button>
+  </div>
+</form>

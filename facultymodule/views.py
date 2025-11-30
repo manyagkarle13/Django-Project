@@ -5,6 +5,7 @@ from django.apps import apps
 from django.contrib import messages
 from django.urls import reverse, NoReverseMatch
 from django.http import HttpResponse, HttpResponseForbidden
+from urllib3 import request
 from hod.models import SchemeCourse, FacultyAssignment, Faculty, CourseAllocation
 import logging
 from django.utils import timezone
@@ -140,12 +141,12 @@ def add_syllabus(request, course_allocation_id):
         syllabus.save()
         
         if action == 'generate_pdf':
-            # Generate PDF using ReportLab
-            return generate_faculty_syllabus_pdf(request, course, syllabus)
+    # Generate PDF using ReportLab and pass the course_allocation so we can save metadata
+            return generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc)
         else:
-            # Just save
             messages.success(request, "Syllabus saved successfully!")
             return redirect('facultymodule:faculty_dashboard')
+
     
     # Handle GET (render form)
     context = {
@@ -271,25 +272,33 @@ def submit_syllabus(request, course_id):
 
     return redirect('facultymodule:faculty_dashboard')
 
-
-def generate_faculty_syllabus_pdf(request, course, syllabus):
+def generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc=None):
     """
-    Generate a clean, professional PDF syllabus using ReportLab.
-    For faculty use only.
+    Generate a PDF (ReportLab) and also save a copy into hod.FacultySyllabusPDF
+    if that model exists. This version is defensive: it will not try to write
+    model fields whose DB columns are missing (so it won't fail if your table
+    schema is out-of-sync). Returns an HttpResponse with PDF bytes for download.
     """
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import inch
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
     from reportlab.lib import colors
     from io import BytesIO
     from datetime import datetime
     from django.http import HttpResponse
-    
+    from django.core.files.base import ContentFile
+    from django.apps import apps
+    from django.utils import timezone
+    import logging
+    from django.db import connection
+
+    logger = logging.getLogger(__name__)
+
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=0.5*inch, bottomMargin=0.5*inch)
-    
-    # Style setup
+
+    # Styles
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle(
         'CustomTitle',
@@ -307,126 +316,255 @@ def generate_faculty_syllabus_pdf(request, course, syllabus):
         spaceAfter=8,
         spaceBefore=8,
     )
-    
+
     elements = []
-    
-    # ===== HEADER =====
-    header_data = [
-        [f"<b>{course.course_code}</b>", f"<b>{course.course_title}</b>"],
-        [f"Category: {course.course_category}", f"L-T-P: {course.teaching_hours_L}-{course.teaching_hours_T}-{course.teaching_hours_P}"],
-        [f"Credits: {course.credits}", f"CIE: {syllabus.cie_scheme or course.cie_marks} | SEE: {syllabus.see_scheme or course.see_marks}"],
-    ]
-    header_table = Table(header_data, colWidths=[3.5*inch, 3.5*inch])
-    header_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f5f8fa')),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#123e77')),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 11),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-        ('TOPPADDING', (0, 0), (-1, -1), 8),
-        ('LEFTPADDING', (0, 0), (-1, -1), 8),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
-        ('BORDER', (0, 0), (-1, -1), 1, colors.grey),
-    ]))
-    elements.append(header_table)
-    elements.append(Spacer(1, 0.3*inch))
-    
-    # ===== COURSE OBJECTIVES =====
-    if syllabus.objectives:
-        elements.append(Paragraph("Course Objectives", heading_style))
-        objectives_text = syllabus.objectives.replace('\n', '<br/>')
-        elements.append(Paragraph(objectives_text, styles['Normal']))
-        elements.append(Spacer(1, 0.2*inch))
-    
-    # ===== COURSE OUTCOMES =====
-    if syllabus.outcomes:
-        elements.append(Paragraph("Course Outcomes (COs)", heading_style))
-        cos_list = syllabus.outcomes.split('\n') if syllabus.outcomes else []
-        for i, co in enumerate(cos_list, 1):
-            if co.strip():
-                elements.append(Paragraph(f"<b>CO {i}:</b> {co.strip()}", styles['Normal']))
-        elements.append(Spacer(1, 0.2*inch))
-    
-    # ===== MODULES =====
-    if syllabus.modules:
-        elements.append(Paragraph("Module-wise Breakdown", heading_style))
-        modules_list = syllabus.modules.split('\n') if syllabus.modules else []
-        for i, module in enumerate(modules_list, 1):
-            if module.strip():
-                elements.append(Paragraph(f"<b>Module {i}:</b> {module.strip()}", styles['Normal']))
-        elements.append(Spacer(1, 0.2*inch))
-    
-    # ===== PRESCRIBED BOOKS =====
-    if syllabus.books:
-        elements.append(Paragraph("Prescribed Books", heading_style))
-        books_list = syllabus.books.split('\n') if syllabus.books else []
-        for book in books_list:
-            if book.strip():
-                elements.append(Paragraph(f"• {book.strip()}", styles['Normal']))
-        elements.append(Spacer(1, 0.2*inch))
-    
-    # ===== E-BOOKS & MOOCS =====
-    if syllabus.ebooks or syllabus.moocs:
-        elements.append(Paragraph("E-Resources", heading_style))
-        if syllabus.ebooks:
-            elements.append(Paragraph("<b>E-Books:</b>", styles['Normal']))
-            ebooks_list = syllabus.ebooks.split('\n')
-            for ebook in ebooks_list:
-                if ebook.strip():
-                    elements.append(Paragraph(f"• {ebook.strip()}", styles['Normal']))
-        if syllabus.moocs:
-            elements.append(Paragraph("<b>MOOCs:</b>", styles['Normal']))
-            moocs_list = syllabus.moocs.split('\n')
-            for mooc in moocs_list:
-                if mooc.strip():
-                    elements.append(Paragraph(f"• {mooc.strip()}", styles['Normal']))
-        elements.append(Spacer(1, 0.2*inch))
-    
-    # ===== ASSESSMENT PLAN =====
-    if syllabus.cie_scheme or syllabus.see_scheme:
-        elements.append(Paragraph("Assessment Plan", heading_style))
-        assessment_data = [['Assessment Method', 'Marks']]
-        if syllabus.cie_scheme:
-            assessment_data.append(['Continuous Internal Evaluation (CIE)', str(syllabus.cie_scheme)])
-        if syllabus.see_scheme:
-            assessment_data.append(['Semester End Examination (SEE)', str(syllabus.see_scheme)])
-        assessment_table = Table(assessment_data, colWidths=[4*inch, 2*inch])
-        assessment_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#8ADBE9')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+
+    # HEADER
+    try:
+        header_data = [
+            [f"<b>{getattr(course, 'course_code', '')}</b>", f"<b>{getattr(course, 'course_title', '')}</b>"],
+            [f"Category: {getattr(course, 'course_category', '')}", f"L-T-P: {getattr(course, 'teaching_hours_L', '')}-{getattr(course, 'teaching_hours_T', '')}-{getattr(course, 'teaching_hours_P', '')}"],
+            [f"Credits: {getattr(course, 'credits', '')}", f"CIE: {getattr(syllabus, 'cie_scheme', '') or getattr(course, 'cie_marks', '')} | SEE: {getattr(syllabus, 'see_scheme', '') or getattr(course, 'see_marks', '')}"],
+        ]
+        header_table = Table(header_data, colWidths=[3.5*inch, 3.5*inch])
+        header_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f5f8fa')),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#123e77')),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-            ('TOPPADDING', (0, 0), (-1, -1), 6),
-            ('BORDER', (0, 0), (-1, -1), 1, colors.grey),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 11),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            ('BOX', (0,0), (-1,-1), 1, colors.grey),
         ]))
-        elements.append(assessment_table)
-        elements.append(Spacer(1, 0.2*inch))
-    
-    # ===== LAB WORK =====
-    if syllabus.lab_work:
-        elements.append(Paragraph("Laboratory Work", heading_style))
-        lab_text = syllabus.lab_work.replace('\n', '<br/>')
-        elements.append(Paragraph(lab_text, styles['Normal']))
-        elements.append(Spacer(1, 0.2*inch))
-    
-    # ===== FOOTER =====
-    elements.append(Spacer(1, 0.3*inch))
-    footer_text = f"<i>Generated by Faculty on {datetime.now().strftime('%d-%m-%Y %H:%M')}</i>"
-    elements.append(Paragraph(footer_text, styles['Normal']))
-    
-    # Build PDF
+        elements.append(header_table)
+        elements.append(Spacer(1, 0.3*inch))
+    except Exception as e:
+        logger.exception("Error building header: %s", e)
+
+    # OBJECTIVES
+    try:
+        if getattr(syllabus, 'objectives', None):
+            elements.append(Paragraph("Course Objectives", heading_style))
+            objectives_text = syllabus.objectives.replace('\n', '<br/>')
+            elements.append(Paragraph(objectives_text, styles['Normal']))
+            elements.append(Spacer(1, 0.2*inch))
+    except Exception as e:
+        logger.exception("Error adding objectives: %s", e)
+
+    # OUTCOMES
+    try:
+        if getattr(syllabus, 'outcomes', None):
+            elements.append(Paragraph("Course Outcomes (COs)", heading_style))
+            cos_list = syllabus.outcomes.split('\n') if syllabus.outcomes else []
+            for i, co in enumerate(cos_list, 1):
+                if co.strip():
+                    elements.append(Paragraph(f"<b>CO {i}:</b> {co.strip()}", styles['Normal']))
+            elements.append(Spacer(1, 0.2*inch))
+    except Exception as e:
+        logger.exception("Error adding outcomes: %s", e)
+
+    # MODULES
+    try:
+        if getattr(syllabus, 'modules', None):
+            elements.append(Paragraph("Module-wise Breakdown", heading_style))
+            modules_list = syllabus.modules.split('\n') if syllabus.modules else []
+            for i, module in enumerate(modules_list, 1):
+                if module.strip():
+                    elements.append(Paragraph(f"<b>Module {i}:</b> {module.strip()}", styles['Normal']))
+            elements.append(Spacer(1, 0.2*inch))
+    except Exception as e:
+        logger.exception("Error adding modules: %s", e)
+
+    # BOOKS
+    try:
+        if getattr(syllabus, 'books', None):
+            elements.append(Paragraph("Prescribed Books", heading_style))
+            books_list = syllabus.books.split('\n') if syllabus.books else []
+            for book in books_list:
+                if book.strip():
+                    elements.append(Paragraph(f"• {book.strip()}", styles['Normal']))
+            elements.append(Spacer(1, 0.2*inch))
+    except Exception as e:
+        logger.exception("Error adding books: %s", e)
+
+    # E-RESOURCES / MOOCS
+    try:
+        if getattr(syllabus, 'ebooks', None) or getattr(syllabus, 'moocs', None):
+            elements.append(Paragraph("E-Resources", heading_style))
+            if getattr(syllabus, 'ebooks', None):
+                elements.append(Paragraph("<b>E-Books:</b>", styles['Normal']))
+                ebooks_list = syllabus.ebooks.split('\n')
+                for ebook in ebooks_list:
+                    if ebook.strip():
+                        elements.append(Paragraph(f"• {ebook.strip()}", styles['Normal']))
+            if getattr(syllabus, 'moocs', None):
+                elements.append(Paragraph("<b>MOOCs:</b>", styles['Normal']))
+                moocs_list = syllabus.moocs.split('\n')
+                for mooc in moocs_list:
+                    if mooc.strip():
+                        elements.append(Paragraph(f"• {mooc.strip()}", styles['Normal']))
+            elements.append(Spacer(1, 0.2*inch))
+    except Exception as e:
+        logger.exception("Error adding e-resources: %s", e)
+
+    # ASSESSMENT PLAN
+    try:
+        if getattr(syllabus, 'cie_scheme', None) or getattr(syllabus, 'see_scheme', None):
+            elements.append(Paragraph("Assessment Plan", heading_style))
+            assessment_data = [['Assessment Method', 'Marks']]
+            if getattr(syllabus, 'cie_scheme', None):
+                assessment_data.append(['Continuous Internal Evaluation (CIE)', str(syllabus.cie_scheme)])
+            if getattr(syllabus, 'see_scheme', None):
+                assessment_data.append(['Semester End Examination (SEE)', str(syllabus.see_scheme)])
+            assessment_table = Table(assessment_data, colWidths=[4*inch, 2*inch])
+            assessment_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#8ADBE9')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('BOX', (0,0), (-1,-1), 1, colors.grey),
+            ]))
+            elements.append(assessment_table)
+            elements.append(Spacer(1, 0.2*inch))
+    except Exception as e:
+        logger.exception("Error adding assessment plan: %s", e)
+
+    # LAB WORK
+    try:
+        if getattr(syllabus, 'lab_work', None):
+            elements.append(Paragraph("Laboratory Work", heading_style))
+            lab_text = syllabus.lab_work.replace('\n', '<br/>')
+            elements.append(Paragraph(lab_text, styles['Normal']))
+            elements.append(Spacer(1, 0.2*inch))
+    except Exception as e:
+        logger.exception("Error adding lab work: %s", e)
+
+    # FOOTER
+    try:
+        elements.append(Spacer(1, 0.3*inch))
+        footer_text = f"<i>Generated by Faculty on {datetime.now().strftime('%d-%m-%Y %H:%M')}</i>"
+        elements.append(Paragraph(footer_text, styles['Normal']))
+    except Exception as e:
+        logger.exception("Error adding footer: %s", e)
+
+    # BUILD PDF and SAVE COPY to hod model if available
     try:
         doc.build(elements)
         buffer.seek(0)
-        
-        # Return PDF response
-        response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
-        response['Content-Disposition'] = f'attachment; filename="{course.course_code}_syllabus.pdf"'
-        return response
+        pdf_bytes = buffer.getvalue()
     except Exception as e:
-        logger.exception("Error generating PDF: %s", e)
+        logger.exception("Error building PDF: %s", e)
+        from django.contrib import messages
         messages.error(request, "Failed to generate PDF.")
         return redirect('facultymodule:faculty_dashboard')
+
+    # === DEFENSIVE SAVE: only include kwargs for columns that actually exist ===
+    try:
+        FacultySyllabusPDF = None
+        try:
+            FacultySyllabusPDF = apps.get_model('hod', 'FacultySyllabusPDF')
+        except LookupError:
+            FacultySyllabusPDF = None
+
+        if FacultySyllabusPDF:
+            # Determine branch/year/semester defensively
+            branch_obj = None
+            year_val = None
+            sem_val = None
+
+            if course_alloc is not None:
+                branch_obj = getattr(course_alloc, 'branch', None)
+                year_val = getattr(course_alloc, 'admission_year', None) or getattr(course_alloc, 'year', None)
+                sem_val = getattr(course_alloc, 'semester', None)
+
+            # fallback: try CourseAllocation table by course code (CourseAllocation imported at module level)
+            try:
+                ca = CourseAllocation.objects.filter(course_code=getattr(course, 'course_code', None)).first()
+                if ca:
+                    branch_obj = branch_obj or getattr(ca, 'branch', None)
+                    year_val = year_val or getattr(ca, 'admission_year', None) or getattr(ca, 'year', None)
+                    sem_val = sem_val or getattr(ca, 'semester', None)
+            except Exception:
+                pass
+
+            branch_obj = branch_obj or getattr(course, 'branch', None) or None
+
+            filename = f"{getattr(course, 'course_code', 'syllabus')}_{timezone.now().strftime('%Y%m%d%H%M%S')}.pdf"
+
+            # Build candidate kwargs (model field names)
+            candidate_kwargs = {
+                'branch': branch_obj,
+                'year': str(year_val) if year_val is not None else '',
+                'semester': str(sem_val) if sem_val is not None else (str(getattr(course, 'semester', '') or '')),
+                'created_by': (request.user if hasattr(request, 'user') else None),
+                # Non-essential / optional descriptive fields (only used if DB has them)
+                'title': f"{getattr(course, 'course_code', 'Syllabus')} syllabus",
+                'file_name': filename,  # if model includes such a column
+            }
+
+            # Map model field name -> DB column name
+            model_field_to_column = {f.name: f.column for f in FacultySyllabusPDF._meta.fields}
+
+            # Attempt to introspect actual DB columns for the table
+            db_columns = []
+            try:
+                with connection.cursor() as cursor:
+                    db_columns = [c.name for c in connection.introspection.get_table_description(cursor, FacultySyllabusPDF._meta.db_table)]
+            except Exception:
+                db_columns = []
+
+            # Keep only kwargs whose DB column exists
+            safe_kwargs = {}
+            for k, v in candidate_kwargs.items():
+                col = model_field_to_column.get(k)
+                if col and (not db_columns or col in db_columns):
+                    safe_kwargs[k] = v
+
+            # Create the row using safe kwargs only
+            pdf_row = FacultySyllabusPDF.objects.create(**safe_kwargs)
+
+            # Save PDF bytes to whichever FileField exists on the model
+            # common file field names tried:
+            filefield_name = None
+            for candidate in ('pdf_file', 'file', 'document', 'file_field', 'pdf'):
+                if hasattr(pdf_row, candidate):
+                    filefield_name = candidate
+                    break
+            if filefield_name:
+                getattr(pdf_row, filefield_name).save(filename, ContentFile(pdf_bytes))
+                pdf_row.save()
+            else:
+                # fallback: if model has a FileField named otherwise, try to detect by field type
+                try:
+                    for f in FacultySyllabusPDF._meta.fields:
+                        if getattr(f, 'get_internal_type', lambda: '')() in ('FileField', 'ImageField'):
+                            fname = f.name
+                            getattr(pdf_row, fname).save(filename, ContentFile(pdf_bytes))
+                            pdf_row.save()
+                            filefield_name = fname
+                            break
+                except Exception:
+                    pass
+
+            logger.info("Saved faculty-generated PDF to hod.FacultySyllabusPDF (pk=%s) filefield=%s", getattr(pdf_row, 'pk', None), filefield_name)
+    except Exception as e:
+        # Non-fatal: log and continue — do not break PDF download for faculty
+        logger.exception("Failed to save faculty PDF (non-fatal): %s", e)
+
+    # Return response to faculty (download)
+    try:
+        response = HttpResponse(pdf_bytes, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="{getattr(course, "course_code", "syllabus")}_syllabus.pdf"'
+        return response
+    except Exception as e:
+        logger.exception("Failed to build HTTP response for PDF: %s", e)
+        from django.contrib import messages
+        messages.error(request, "Failed to return PDF.")
+        return redirect('facultymodule:faculty_dashboard')
+

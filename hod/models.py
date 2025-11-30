@@ -1,3 +1,4 @@
+# hod/models.py
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
@@ -180,3 +181,51 @@ class SchemeDocument(models.Model):
 
     def __str__(self):
         return f"{self.branch_name} {self.year} Sem{self.semester}"
+
+
+# ---------------------------------------------------------------------------
+# FacultySyllabusPDF
+# replaces the broken/duplicate definition; safe, single model for faculty PDFs
+# ---------------------------------------------------------------------------
+class FacultySyllabusPDF(models.Model):
+    """
+    Store faculty-generated syllabus PDFs for a branch / year / semester.
+    Year and semester are CharFields for flexibility; change to IntegerField if you prefer.
+    """
+    branch = models.ForeignKey(
+        'academics.Branch',            # string to avoid import-order problems
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='faculty_generated_pdfs'
+    )
+
+    year = models.CharField(max_length=10, null=True, blank=True)      # e.g. "2025"
+    semester = models.CharField(max_length=6, null=True, blank=True)   # e.g. "3"
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='faculty_generated_pdfs'
+    )
+
+    pdf_file = models.FileField(upload_to='faculty/syllabi/%Y/%m/%d/', null=True, blank=True)
+    title = models.CharField(max_length=255, blank=True, null=True)
+    course = models.ForeignKey('academics.CollegeLevelCourse', on_delete=models.SET_NULL, null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # approval workflow fields (HOD)
+    approved = models.BooleanField(default=False)
+    approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, related_name='approved_faculty_pdfs', on_delete=models.SET_NULL)
+    approved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        branch_name = self.branch.name if self.branch else "NoBranch"
+        return f"{branch_name} | {self.year} Sem{self.semester}"

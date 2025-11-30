@@ -45,6 +45,8 @@ urlpatterns = [
     path("dean/syllabus/<int:pk>/delete/", views.delete_syllabus, name="delete_syllabus"),
     path("dean/syllabus/<int:pk>/restore/", views.restore_syllabus, name="restore_syllabus"),
     path("dean/syllabus/<int:pk>/permanent_delete/", views.permanent_delete_syllabus, name="permanent_delete_syllabus"),
+    # academics/urls.py
+     path("dean/course/<int:pk>/edit/", views.edit_college_level_course, name="edit_college_level_course"),
 
     # Add this path (in the appropriate urls.py file):
     path('course/<int:course_pk>/latest-syllabus/', views.redirect_to_latest_syllabus_for_course, name='course_latest_syllabus'),

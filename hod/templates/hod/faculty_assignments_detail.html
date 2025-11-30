@@ -1,0 +1,69 @@
+{% load static %}
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Assigned Faculty Manager — {{ branch.name }}</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;background:#f6f7f8;color:#222;padding:18px;}
+    .card{background:#fff;border-radius:8px;padding:20px;box-shadow:0 2px 4px rgba(0,0,0,0.08);margin-bottom:20px;}
+    table{width:100%;border-collapse:collapse;margin:10px 0;}
+    th,td{padding:10px;border-bottom:1px solid #e9eef0;text-align:left;}
+    th{background:#8ADBE9;color:#fff;font-weight:700;}
+    .empty {color:#777;font-style:italic;padding:20px;text-align:center;}
+    .btn {display:inline-block;padding:10px 16px;background:#1e88e5;color:#fff;border-radius:4px;text-decoration:none;}
+    .btn-secondary{background:#6c757d;}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Assigned Faculty & Submissions — {{ branch.name }}</h2>
+
+    {% if year and semester %}
+      <p style="color:#444;margin-top:6px;">Showing assignments for Year <strong>{{ year }}</strong>, Semester <strong>{{ semester }}</strong>.</p>
+    {% else %}
+      <p style="color:#b72b3f;">No year/semester selected. Open this page from the HOD dashboard with a year & semester selected.</p>
+    {% endif %}
+
+    <h3 style="margin-top:18px;">Course Assignments</h3>
+
+    {% if assignments %}
+      <table>
+        <thead>
+          <tr>
+            <th>Course Code</th>
+            <th>Course Title</th>
+            <th style="text-align:center">Credits</th>
+            <th style="text-align:center">Assigned On</th>
+            <th>Assigned Faculty</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in assignments %}
+            <tr>
+              <td style="font-weight:700;">{{ a.course_code }}</td>
+              <td>{{ a.course_title }}</td>
+              <td style="text-align:center;">{{ a.credits }}</td>
+              <td style="text-align:center;">{% if a.assigned_on %}{{ a.assigned_on|date:"d M Y, H:i" }}{% else %}—{% endif %}</td>
+              <td>{{ a.assigned_faculty_name|default:"Not assigned" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty">No assignments found for the selected year/semester.</p>
+    {% endif %}
+
+    <div style="margin-top:18px;">
+      {# Back to Dashboard: include year/semester when available #}
+      {% if year and semester %}
+        <a href="{% url 'hod:dashboard_self' branch.pk %}?year={{ year }}&semester={{ semester }}" class="btn btn-secondary">Back to Dashboard</a>
+          <a href="{% url 'hod:create_combined_syllabus' branch.pk %}?year={{ year }}&semester={{ semester }}" class="btn" style="margin-left:8px;">Create Combined Syllabus (Approved only)</a>
+      {% else %}
+        <a href="{% url 'hod:dashboard_self' branch.pk %}" class="btn btn-secondary">Back to Dashboard</a>
+          <a href="{% url 'hod:create_combined_syllabus' branch.pk %}" class="btn" style="margin-left:8px;">Create Combined Syllabus (Approved only)</a>
+      {% endif %}
+    </div>
+  </div>
+</body>
+</html>

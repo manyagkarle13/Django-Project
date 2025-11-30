@@ -1,4 +1,3 @@
-# ===== IMPORTS (at the very top - COMPLETE SET) =====
 import os
 import logging
 from io import BytesIO
@@ -18,6 +17,7 @@ from django.http import HttpResponse, FileResponse
 from django.utils import timezone
 from django.views.decorators.http import require_POST, require_http_methods
 
+
 # ReportLab imports
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import inch
@@ -26,24 +26,86 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
-# Local imports
+# local user model
 from users.models import CustomUser
-from .models import SchemeCourse, Faculty, FacultyAssignment, CourseAllocation
 
 logger = logging.getLogger(__name__)
 
-# Try importing models; if they don't exist, create stubs
-try:
-    from academics.models import CollegeLevelCourse as Course, Branch, Syllabus
-except ImportError:
-    Course = None
-    Branch = None
-    Syllabus = None
+# ---------- robust model imports ----------
+# Try the most likely module paths for each model (Academics / Hod / Users).
+# If a model truly isn't present, raise an explicit ImportError so you fix the app naming / INSTALLED_APPS.
 
+def _import_model(path, model_name):
+    """Try to import model by module path string; raise helpful error if missing."""
+    try:
+        module = __import__(path, fromlist=[model_name])
+        return getattr(module, model_name)
+    except Exception as e:
+        raise ImportError(f"Cannot import {model_name} from {path}: {e}")
+
+# academics models (primary)
+Course = Branch = Syllabus = None
 try:
-    from academics.models import SyllabusSubmission
-except ImportError:
-    SyllabusSubmission = None
+    Course = _import_model('academics.models', 'CollegeLevelCourse')
+    Branch = _import_model('academics.models', 'Branch')
+    Syllabus = _import_model('academics.models', 'Syllabus')
+except ImportError as e:
+    # Fall back attempts (common alternate names/locations)
+    logger.debug("Primary academics import failed: %s", e)
+    try:
+        Course = _import_model('academics.models', 'Course')
+    except Exception:
+        Course = None
+    # Branch/Syllabus fallback not attempted further; we'll raise later if required.
+
+# Hod / allocation & assignment models (where you keep CourseAllocation/FacultyAssignment)
+CourseAllocation = FacultyAssignment = None
+try:
+    CourseAllocation = _import_model('hod.models', 'CourseAllocation')
+    FacultyAssignment = _import_model('hod.models', 'FacultyAssignment')
+except Exception:
+    logger.debug("hod.models import failed for allocation/assignment, trying alternatives")
+    # also try academia or local app
+    try:
+        CourseAllocation = _import_model('academics.models', 'CourseAllocation')
+    except Exception:
+        CourseAllocation = None
+    try:
+        FacultyAssignment = _import_model('academics.models', 'FacultyAssignment')
+    except Exception:
+        FacultyAssignment = None
+
+# Faculty model — could live in users, faculty app or hod app. Try in order.
+Faculty = None
+for path, name in (('users.models', 'Faculty'), ('faculty.models', 'Faculty'), ('hod.models', 'Faculty')):
+    try:
+        Faculty = _import_model(path, name)
+        break
+    except Exception:
+        logger.debug("Could not import Faculty from %s.%s", path, name)
+
+# Optional: SyllabusSubmission (used somewhere else maybe)
+SyllabusSubmission = None
+try:
+    SyllabusSubmission = _import_model('academics.models', 'SyllabusSubmission')
+except Exception:
+    logger.debug("SyllabusSubmission not found in academics.models; continuing.")
+
+# Final sanity: if critical models are missing, raise an explanatory ImportError immediately.
+_missing = []
+if Course is None:
+    _missing.append('CollegeLevelCourse (academics.models)')
+if Branch is None:
+    _missing.append('Branch (academics.models)')
+if CourseAllocation is None:
+    _missing.append('CourseAllocation (hod.models or academics.models)')
+if FacultyAssignment is None:
+    _missing.append('FacultyAssignment (hod.models or academics.models)')
+
+if _missing:
+    raise ImportError("Missing required models: " + ', '.join(_missing) +
+                      ". Check app names, model names and INSTALLED_APPS.")
+
 
 
 # ===== HELPER FUNCTION: BUILD SCHEME PDF BYTES =====
@@ -385,9 +447,24 @@ def dashboard_redirect(request):
         return redirect('/')
     return redirect('hod:dashboard_self', branch_pk=branch.pk)
 
+from django.shortcuts import render, get_object_or_404, redirect
+from django.contrib.auth.decorators import login_required
+from django.db.models import Q
+from django.apps import apps
+import logging
+
+logger = logging.getLogger(__name__)
+
 @login_required
 def dashboard(request, branch_pk=None):
     """Main HOD dashboard for a branch."""
+    Branch = apps.get_model('academics', 'Branch')
+    Course = None
+    try:
+        Course = apps.get_model('academics', 'CollegeLevelCourse')
+    except LookupError:
+        Course = None
+
     if not Branch or not Course:
         # academics app models not available
         return render(request, 'hod/hod_dashboard.html', {
@@ -396,7 +473,7 @@ def dashboard(request, branch_pk=None):
 
     if branch_pk is None:
         # no branch supplied — redirect to the HOD's assigned branch if possible
-        return dashboard_redirect(request)
+        return redirect('hod:dashboard_self') if hasattr(request.user, 'hod_assignment') else redirect('home')
     else:
         branch = get_object_or_404(Branch, pk=branch_pk)
 
@@ -407,8 +484,11 @@ def dashboard(request, branch_pk=None):
     # ensure this variable always exists to avoid UnboundLocalError
     selected_sem_credit = None
 
-    # get CollegeLevelCourse model
-    CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
+    # get CollegeLevelCourse model (already attempted above, but re-fetch safely)
+    try:
+        CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
+    except LookupError:
+        CollegeLevelCourse = None
 
     courses_dean = []
     total_credits = 0
@@ -417,29 +497,25 @@ def dashboard(request, branch_pk=None):
     semester_rows = []
     semester_credit_obj = None
     if selected_year:
-        # try to get SemesterCredit record and build a safe list of semester rows for template
-        semester_rows = []
-        semester_credit_obj = None
-        if selected_year:
-            try:
-                SemesterCredit = apps.get_model('academics', 'SemesterCredit')
+        try:
+            SemesterCredit = apps.get_model('academics', 'SemesterCredit')
+        except LookupError:
+            semester_credit_obj = None
+        else:
+            # choose proper "not deleted" kwarg depending on model field name
+            deleted_kw = {}
+            field_names = [f.name for f in SemesterCredit._meta.get_fields()]
+            if 'is_deleted' in field_names:
+                deleted_kw['is_deleted'] = False
+            elif 'deleted' in field_names:
+                deleted_kw['deleted'] = False
 
-                # choose proper "not deleted" kwarg depending on model field name
-                deleted_kw = {}
-                field_names = [f.name for f in SemesterCredit._meta.get_fields()]
-                if 'is_deleted' in field_names:
-                    deleted_kw['is_deleted'] = False
-                elif 'deleted' in field_names:
-                    deleted_kw['deleted'] = False
-
-                semester_credit_obj = SemesterCredit.objects.filter(branch=branch, admission_year=selected_year, **deleted_kw).first()
-                if not semester_credit_obj:
-                    try:
-                        semester_credit_obj = SemesterCredit.objects.filter(branch=branch, admission_year=int(selected_year), **deleted_kw).first()
-                    except Exception:
-                        semester_credit_obj = None
-            except LookupError:
-                semester_credit_obj = None
+            semester_credit_obj = SemesterCredit.objects.filter(branch=branch, admission_year=selected_year, **deleted_kw).first()
+            if not semester_credit_obj:
+                try:
+                    semester_credit_obj = SemesterCredit.objects.filter(branch=branch, admission_year=int(selected_year), **deleted_kw).first()
+                except Exception:
+                    semester_credit_obj = None
 
             if semester_credit_obj:
                 for i in range(1, 9):
@@ -465,117 +541,145 @@ def dashboard(request, branch_pk=None):
                         selected_sem_credit = None
 
     # Only display dean-provided courses after both year AND semester are selected
-    if selected_year and selected_semester:
+    if selected_year and selected_semester and CollegeLevelCourse:
         try:
-            CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
+            dean_qs = CollegeLevelCourse.objects.filter(Q(branch__isnull=True) | Q(branch=branch))
+            # if model has semester field, filter by sem
+            if hasattr(CollegeLevelCourse, 'semester'):
+                try:
+                    dean_qs = dean_qs.filter(semester=selected_semester)
+                except Exception:
+                    pass
+        except Exception:
+            dean_qs = CollegeLevelCourse.objects.none()
+
+        # Convert to simple dicts (make faculty_id an int or None)
+        courses_dean = []
+        for c in dean_qs:
+            f_id = None
+            if hasattr(c, 'faculty_id') and getattr(c, 'faculty_id') not in (None, ''):
+                try:
+                    f_id = int(getattr(c, 'faculty_id'))
+                except Exception:
+                    try:
+                        f_obj = getattr(c, 'faculty', None)
+                        f_id = int(getattr(f_obj, 'id')) if f_obj else None
+                    except Exception:
+                        f_id = None
+
+            courses_dean.append({
+                'id': getattr(c, 'id', None),
+                'category': getattr(c, 'course_category', '') or '',
+                'course_code': getattr(c, 'course_code', '') or '',
+                'course_title': getattr(c, 'course_title', '') or '',
+                'l': int(getattr(c, 'teaching_hours_L', 0) or 0),
+                't': int(getattr(c, 'teaching_hours_T', 0) or 0),
+                'p': int(getattr(c, 'teaching_hours_P', 0) or 0),
+                'total_hours': (int(getattr(c, 'teaching_hours_L', 0) or 0)
+                                + int(getattr(c, 'teaching_hours_T', 0) or 0)
+                                + int(getattr(c, 'teaching_hours_P', 0) or 0)),
+                'cie': int(getattr(c, 'cie_marks', 0) or 0),
+                'see': int(getattr(c, 'see_marks', 0) or 0),
+                'total_marks': (int(getattr(c, 'cie_marks', 0) or 0)
+                                + int(getattr(c, 'see_marks', 0) or 0)),
+                'credits': getattr(c, 'credits', 0) or 0,
+                'faculty_id': f_id,
+                'faculty_username': getattr(getattr(c, 'faculty', None), 'username', '') if hasattr(c, 'faculty') else '',
+            })
+
+        # Attach latest syllabus pk per course (safe lookup)
+        try:
+            Syllabus = apps.get_model('academics', 'Syllabus')
+            syllabus_map = {}
+            created_field = 'created_on' if 'created_on' in [f.name for f in Syllabus._meta.get_fields()] else 'created_at'
+            for s in Syllabus.objects.all().order_by(f'-{created_field}'):
+                course_obj = getattr(s, 'course', None)
+                if not course_obj:
+                    continue
+                course_pk = getattr(course_obj, 'pk', None)
+                if course_pk and course_pk not in syllabus_map:
+                    syllabus_map[course_pk] = s.pk
+            for c in courses_dean:
+                c['syllabus_pk'] = syllabus_map.get(c.get('id'))
         except LookupError:
-            logger.warning("academics.CollegeLevelCourse model not found")
-            courses_dean = []
-        else:
-            # safe dean course queryset for branch or college-wide
-            try:
-                dean_qs = CollegeLevelCourse.objects.filter(Q(branch__isnull=True) | Q(branch=branch))
-                # if model has semester field, filter by sem
-                if hasattr(CollegeLevelCourse, 'semester'):
-                    try:
-                        dean_qs = dean_qs.filter(semester=selected_semester)
-                    except Exception:
-                        # if semester field uses string/other format, try cast
-                        pass
-            except Exception:
-                dean_qs = CollegeLevelCourse.objects.none()
-
-            # Convert to simple dicts (make faculty_id an int or None)
-            courses_dean = []
-            for c in dean_qs:
-                # safely get faculty id as int if present
-                f_id = None
-                if hasattr(c, 'faculty_id') and getattr(c, 'faculty_id') not in (None, ''):
-                    try:
-                        f_id = int(getattr(c, 'faculty_id'))
-                    except Exception:
-                        try:
-                            # if c.faculty is a relation
-                            f_obj = getattr(c, 'faculty', None)
-                            f_id = int(getattr(f_obj, 'id')) if f_obj else None
-                        except Exception:
-                            f_id = None
-
-                courses_dean.append({
-                    'id': getattr(c, 'id', None),
-                    'category': getattr(c, 'course_category', '') or '',
-                    'course_code': getattr(c, 'course_code', '') or '',
-                    'course_title': getattr(c, 'course_title', '') or '',
-                    'l': int(getattr(c, 'teaching_hours_L', 0) or 0),
-                    't': int(getattr(c, 'teaching_hours_T', 0) or 0),
-                    'p': int(getattr(c, 'teaching_hours_P', 0) or 0),
-                    'total_hours': (int(getattr(c, 'teaching_hours_L', 0) or 0)
-                                    + int(getattr(c, 'teaching_hours_T', 0) or 0)
-                                    + int(getattr(c, 'teaching_hours_P', 0) or 0)),
-                    'cie': int(getattr(c, 'cie_marks', 0) or 0),
-                    'see': int(getattr(c, 'see_marks', 0) or 0),
-                    'total_marks': (int(getattr(c, 'cie_marks', 0) or 0)
-                                    + int(getattr(c, 'see_marks', 0) or 0)),
-                    'credits': getattr(c, 'credits', 0) or 0,
-                    'faculty_id': f_id,
-                    'faculty_username': getattr(getattr(c, 'faculty', None), 'username', '') if hasattr(c, 'faculty') else '',
-                })
-
-            # Attach latest syllabus pk per course (safe lookup)
-            try:
-                Syllabus = apps.get_model('academics', 'Syllabus')
-                syllabus_map = {}
-                created_field = 'created_on' if 'created_on' in [f.name for f in Syllabus._meta.get_fields()] else 'created_at'
-                for s in Syllabus.objects.all().order_by(f'-{created_field}'):
-                    course_obj = getattr(s, 'course', None)
-                    if not course_obj:
-                        continue
-                    course_pk = getattr(course_obj, 'pk', None)
-                    if course_pk and course_pk not in syllabus_map:
-                        syllabus_map[course_pk] = s.pk
-                for c in courses_dean:
-                    c['syllabus_pk'] = syllabus_map.get(c.get('id'))
-            except LookupError:
-                for c in courses_dean:
-                    c['syllabus_pk'] = None
+            for c in courses_dean:
+                c['syllabus_pk'] = None
     else:
-        # keep empty when not selected
         courses_dean = []
 
+    # pending submissions (existing code)
     pending_submissions = []
+    try:
+        SyllabusSubmission = apps.get_model('academics', 'SyllabusSubmission')
+    except LookupError:
+        SyllabusSubmission = None
+
     if SyllabusSubmission:
         try:
-            pending_submissions = SyllabusSubmission.objects.filter(course__branch=branch, status='PENDING')
+            # Use case-insensitive match for 'pending' to be robust against inconsistent casing
+            pending_submissions = SyllabusSubmission.objects.filter(course__branch=branch, status__iexact='pending')
         except Exception:
             pending_submissions = []
+
+    # ---------- NEW: fetch faculty-generated PDFs that match branch/year/semester ----------
+    faculty_pdfs = []
+    try:
+        PDFModel = apps.get_model('academics', 'FacultySyllabusPDF')  # change name here if your model differs
+    except LookupError:
+        PDFModel = None
+
+    if PDFModel and selected_year and selected_semester:
+        pdf_fields = [f.name for f in PDFModel._meta.get_fields()]
+        created_field = 'created_at' if 'created_at' in pdf_fields else ('created_on' if 'created_on' in pdf_fields else None)
+
+        # build filter kwargs using common field names
+        pdf_filter = {}
+        # branch
+        if 'branch' in pdf_fields:
+            pdf_filter['branch'] = branch
+        # year: try a few names
+        for year_field in ('year', 'academic_year', 'admission_year'):
+            if year_field in pdf_fields:
+                pdf_filter[year_field] = selected_year
+                break
+        # semester
+        for sem_field in ('semester', 'sem'):
+            if sem_field in pdf_fields:
+                pdf_filter[sem_field] = selected_semester
+                break
+
+        try:
+            qs = PDFModel.objects.filter(**pdf_filter)
+            if created_field:
+                qs = qs.order_by(f'-{created_field}')
+            faculty_pdfs = qs
+        except Exception:
+            faculty_pdfs = PDFModel.objects.none()
+    else:
+        # empty queryset-like for template safety
+        faculty_pdfs = PDFModel.objects.none() if PDFModel else []
 
     # robustly compute total credits (works for model instances *or* dicts)
     total_credits_dean = 0
     if courses_dean:
         for c in courses_dean:
             try:
-                # model instance path
                 val = getattr(c, 'credits', None)
                 if val is None and isinstance(c, dict):
-                    # dict fallback
                     val = c.get('credits', 0)
                 total_credits_dean += int(val or 0)
             except Exception:
-                # last resort: try dict get or treat as 0
                 try:
                     total_credits_dean += int(c.get('credits', 0))
                 except Exception:
                     pass
 
-    # If you have your own schema model, fetch credits for the selected sem
+    # total credits from scheme
     total_credits_schema = 0
     if selected_year and selected_semester:
         try:
             SemesterCredit = apps.get_model('academics', 'SemesterCredit')
-            obj = SemesterCredit.objects.filter(
-                branch=branch,
-                admission_year=selected_year
-            ).first()
+            obj = SemesterCredit.objects.filter(branch=branch, admission_year=selected_year).first()
             if obj:
                 sem_field = f"sem{selected_semester}"
                 total_credits_schema = getattr(obj, sem_field, 0) or 0
@@ -594,6 +698,8 @@ def dashboard(request, branch_pk=None):
         'selected_sem_credit': selected_sem_credit,
         'total_credits_dean': total_credits_dean,
         'total_credits_schema': total_credits_schema,
+        # new: faculty-generated PDFs for this branch/year/sem
+        'faculty_pdfs': faculty_pdfs,
     }
     return render(request, 'hod/hod_dashboard.html', context)
 
@@ -647,7 +753,28 @@ def view_submission(request, submission_pk):
 @require_http_methods(["POST"])
 @login_required
 def approve_syllabus(request, submission_pk):
-    return redirect('hod:hod_dashboard')
+    # Approve a syllabus submission (academics.SyllabusSubmission)
+    from django.apps import apps
+    try:
+        SyllabusSubmission = apps.get_model('academics', 'SyllabusSubmission')
+    except LookupError:
+        messages.error(request, 'Syllabus submission model not available.')
+        return redirect(request.META.get('HTTP_REFERER') or reverse('hod:dashboard_self', args=[getattr(request.user, 'hod_assignment').branch.pk if hasattr(request.user, 'hod_assignment') else 0]))
+
+    sub = get_object_or_404(SyllabusSubmission, pk=submission_pk)
+    # mark approved
+    try:
+        sub.status = 'approved'
+        sub.approved_by = request.user
+        sub.approved_at = timezone.now()
+        sub.save(update_fields=['status', 'approved_by', 'approved_at', 'updated_at'])
+        messages.success(request, f'Syllabus for {sub.course.course_code} approved.')
+    except Exception as e:
+        logger.exception('Failed to approve syllabus submission %s: %s', submission_pk, e)
+        messages.error(request, 'Failed to approve submission.')
+
+    # Redirect back
+    return redirect(request.META.get('HTTP_REFERER') or reverse('hod:dashboard_self', args=[getattr(request.user, 'hod_assignment').branch.pk if hasattr(request.user, 'hod_assignment') else 0]))
 
 @require_POST
 @login_required
@@ -807,254 +934,6 @@ def create_scheme_form(request, branch_pk, year, semester):
     }
     return render(request, 'hod/create_scheme.html', context)
 
-
-@login_required
-def create_scheme(request, branch_pk, year, semester):
-    """
-    Handle both GET (show form) and POST (save scheme).
-    """
-    branch = get_object_or_404(Branch, pk=branch_pk)
-    faculty_list = CustomUser.objects.filter(role='faculty', is_active=True)
-
-    # safe dean course queryset for branch or college-wide
-    try:
-        dean_qs = Course.objects.filter(Q(branch__isnull=True) | Q(branch=branch))
-        # if model has semester field, filter by sem
-        if hasattr(Course, 'semester'):
-            try:
-                dean_qs = dean_qs.filter(semester=semester)
-            except Exception:
-                # if semester field uses string/other format, try cast
-                pass
-    except Exception:
-        dean_qs = Course.objects.none()
-
-    # Convert to simple dicts (make faculty_id an int or None)
-    dean_courses = []
-    for c in dean_qs:
-        # safely get faculty id as int if present
-        f_id = None
-        if hasattr(c, 'faculty_id') and getattr(c, 'faculty_id') not in (None, ''):
-            try:
-                f_id = int(getattr(c, 'faculty_id'))
-            except Exception:
-                try:
-                    # if c.faculty is a relation
-                    f_obj = getattr(c, 'faculty', None)
-                    f_id = int(getattr(f_obj, 'id')) if f_obj else None
-                except Exception:
-                    f_id = None
-
-        dean_courses.append({
-            'id': getattr(c, 'id', None),
-            'category': getattr(c, 'course_category', '') or '',
-            'course_code': getattr(c, 'course_code', '') or '',
-            'course_title': getattr(c, 'course_title', '') or '',
-            'l': int(getattr(c, 'teaching_hours_L', 0) or 0),
-            't': int(getattr(c, 'teaching_hours_T', 0) or 0),
-            'p': int(getattr(c, 'teaching_hours_P', 0) or 0),
-            'total_hours': (int(getattr(c, 'teaching_hours_L', 0) or 0)
-                            + int(getattr(c, 'teaching_hours_T', 0) or 0)
-                            + int(getattr(c, 'teaching_hours_P', 0) or 0)),
-            'cie': int(getattr(c, 'cie_marks', 0) or 0),
-            'see': int(getattr(c, 'see_marks', 0) or 0),
-            'total_marks': (int(getattr(c, 'cie_marks', 0) or 0)
-                            + int(getattr(c, 'see_marks', 0) or 0)),
-            'credits': getattr(c, 'credits', 0) or 0,
-            'faculty_id': f_id,
-            'faculty_username': getattr(getattr(c, 'faculty', None), 'username', '') if hasattr(c, 'faculty') else '',
-        })
-
-    if request.method == 'POST':
-        # Cancel/back support
-        if 'cancel' in request.POST or 'back' in request.POST:
-            dashboard_url = reverse('hod:dashboard_self', args=[branch_pk])
-            return redirect(f"{dashboard_url}?year={year}&semester={semester}")
-
-        # Clear messages
-        list(messages.get_messages(request))
-
-        created = 0
-
-        # --- Save main scheme rows ---
-        i = 1
-        while True:
-            code = request.POST.get(f'code_new_{i}', '').strip()
-            title = request.POST.get(f'title_new_{i}', '').strip()
-            if not code and not title:
-                break
-
-            l = request.POST.get(f'l_new_{i}') or 0
-            t = request.POST.get(f't_new_{i}') or 0
-            p = request.POST.get(f'p_new_{i}') or 0
-            try:
-                total_hours = int(request.POST.get(f'total_hours_new_{i}') or (int(l or 0) + int(t or 0) + int(p or 0)))
-            except Exception:
-                total_hours = (int(l or 0) + int(t or 0) + int(p or 0))
-            cie = request.POST.get(f'cie_new_{i}') or 0
-            see = request.POST.get(f'see_new_{i}') or 0
-            try:
-                total_marks = int(request.POST.get(f'total_marks_new_{i}') or (int(cie or 0) + int(see or 0)))
-            except Exception:
-                total_marks = (int(cie or 0) + int(see or 0))
-            credits = request.POST.get(f'credits_new_{i}') or 0
-            faculty_id = request.POST.get(f'faculty_new_{i}') or None
-            category = request.POST.get(f'category_new_{i}') or None
-
-            try:
-                with transaction.atomic():
-                    # Create SchemeCourse
-                    sc = SchemeCourse.objects.create(
-                        branch=branch_pk,
-                        year=int(year),
-                        semester=int(semester),
-                        course_code=code,
-                        course_title=title if hasattr(SchemeCourse, 'course_title') else None,
-                        l=int(l or 0),
-                        t=int(t or 0),
-                        p=int(p or 0),
-                        total_hours=int(total_hours or 0),
-                        cie=int(cie or 0),
-                        see=int(see or 0),
-                        total_marks=int(total_marks or 0),
-                        credits=int(credits or 0),
-                        faculty=None,
-                        category=category,
-                        is_elective=False
-                    )
-
-                    # Ensure CourseAllocation for this HOD
-                    hod_assignment = getattr(request.user, 'hod_assignment', None)
-                    course_alloc = None
-                    if hod_assignment:
-                        course_alloc = CourseAllocation.objects.filter(hod_assignment=hod_assignment, course_code=code).first()
-                        if not course_alloc:
-                            course_alloc = CourseAllocation.objects.create(
-                                hod_assignment=hod_assignment,
-                                course_code=code,
-                                course_title=title or '',
-                                course_category=category or '',
-                                teaching_hours_L=int(l or 0),
-                                teaching_hours_T=int(t or 0),
-                                teaching_hours_P=int(p or 0),
-                                credits=int(credits or 0)
-                            )
-
-                    # If faculty selected, create Faculty profile and FacultyAssignment
-                    if faculty_id:
-                        try:
-                            faculty_user = CustomUser.objects.get(id=faculty_id)
-                            faculty_profile, fp_created = Faculty.objects.get_or_create(
-                                user=faculty_user,
-                                defaults={'department': getattr(hod_assignment.branch, 'name', '') if hod_assignment else ''}
-                            )
-                            # Assign to SchemeCourse
-                            sc.faculty = faculty_user
-                            sc.save(update_fields=['faculty'])
-
-                            # Create FacultyAssignment
-                            if course_alloc:
-                                FacultyAssignment.objects.update_or_create(
-                                    faculty=faculty_profile,
-                                    course_allocation=course_alloc,
-                                    defaults={'assigned_on': timezone.now()}
-                                )
-                                logger.info("Assigned faculty user=%s to course_code=%s (scheme_course_id=%s) course_alloc=%s",
-                                            faculty_user.username, code, sc.pk, course_alloc.pk)
-                        except CustomUser.DoesNotExist:
-                            logger.warning("Faculty user id=%s does not exist", faculty_id)
-                    
-                    created += 1
-            except Exception as e:
-                logger.exception("Failed to create main scheme row %s: %s", i, e)
-            i += 1
-
-        # --- Save elective sections (pec, oec, esc, aec) ---
-        for section in ['pec', 'oec', 'esc', 'aec']:
-            j = 1
-            while True:
-                code = request.POST.get(f'{section}_code_{j}', '').strip()
-                title = request.POST.get(f'{section}_title_{j}', '').strip()
-                if not code and not title:
-                    break
-                faculty_id = request.POST.get(f'{section}_faculty_{j}') or None
-                
-                try:
-                    with transaction.atomic():
-                        # Create SchemeCourse for elective
-                        sc = SchemeCourse.objects.create(
-                            branch=branch_pk,
-                            year=int(year),
-                            semester=int(semester),
-                            course_code=code,
-                            course_title=title if hasattr(SchemeCourse, 'course_title') else None,
-                            faculty=None,
-                            category=section.upper(),
-                            is_elective=True
-                        )
-
-                        # Ensure CourseAllocation for this HOD
-                        hod_assignment = getattr(request.user, 'hod_assignment', None)
-                        course_alloc = None
-                        if hod_assignment:
-                            course_alloc = CourseAllocation.objects.filter(hod_assignment=hod_assignment, course_code=code).first()
-                            if not course_alloc:
-                                course_alloc = CourseAllocation.objects.create(
-                                    hod_assignment=hod_assignment,
-                                    course_code=code,
-                                    course_title=title or '',
-                                    course_category=section.upper(),
-                                    teaching_hours_L=0,
-                                    teaching_hours_T=0,
-                                    teaching_hours_P=0,
-                                    credits=0
-                                )
-
-                        # If faculty selected, create Faculty profile and FacultyAssignment
-                        if faculty_id:
-                            try:
-                                faculty_user = CustomUser.objects.get(id=faculty_id)
-                                faculty_profile, fp_created = Faculty.objects.get_or_create(
-                                    user=faculty_user,
-                                    defaults={'department': getattr(hod_assignment.branch, 'name', '') if hod_assignment else ''}
-                                )
-                                # Assign to SchemeCourse
-                                sc.faculty = faculty_user
-                                sc.save(update_fields=['faculty'])
-
-                                # Create FacultyAssignment
-                                if course_alloc:
-                                    FacultyAssignment.objects.update_or_create(
-                                        faculty=faculty_profile,
-                                        course_allocation=course_alloc,
-                                        defaults={'assigned_on': timezone.now()}
-                                    )
-                                    logger.info("Assigned faculty user=%s to elective course_code=%s (scheme_course_id=%s) course_alloc=%s",
-                                                faculty_user.username, code, sc.pk, course_alloc.pk)
-                            except CustomUser.DoesNotExist:
-                                logger.warning("Faculty user id=%s does not exist (elective)", faculty_id)
-                        
-                        created += 1
-                except Exception as e:
-                    logger.exception("Failed to create elective %s row %s: %s", section, j, e)
-                j += 1
-
-        if created:
-            messages.success(request, f"Scheme saved successfully! ({created} rows created)")
-        else:
-            messages.info(request, "No rows were created. Check submitted data.")
-
-        return redirect('hod:create_scheme', branch_pk=branch_pk, year=year, semester=semester)
-
-    # GET: render form
-    context = {
-        'branch': branch,
-        'year': year,
-        'semester': semester,
-        'dean_courses': dean_courses,
-        'faculty_list': faculty_list,
-    }
-    return render(request, 'hod/create_scheme.html', context)
 
 @login_required
 def generate_pdf_view(request, branch_pk, year, semester):
@@ -1805,70 +1684,169 @@ FacultyAssignment = _get_hod_model('FacultyAssignment')
 HODAssignment = _get_hod_model('HODAssignment')
 # ---------------------------------------------------------------------------
 
+# paste into hod/views.py (overwrite existing faculty_assignments_detail)
+from django.shortcuts import render, get_object_or_404
+from django.contrib.auth.decorators import login_required
+from django.db.models import Prefetch
+from django.core.exceptions import FieldError
+
+from .models import HODAssignment, CourseAllocation, FacultyAssignment, SchemeCourse
+from academics.models import Branch
+
 @login_required
-def faculty_assignment_detail(request, branch_id):
-    year = request.GET.get('year')
-    semester = request.GET.get('semester')
+def faculty_assignments_detail(request, branch_pk):
+    """
+    Show assigned faculty for a branch, filtered by ?year=&semester=.
+    Fallback behaviour: if year/semester selected but no SchemeCourse rows exist,
+    show the HOD's CourseAllocation rows (so assignments remain visible).
+    """
+    branch = get_object_or_404(Branch, pk=branch_pk)
 
-    # 1) fetch schemecourse rows linked via scheme
-    sc_qs = SchemeCourse.objects.filter(
-        scheme__branch_id=branch_id
-    ).select_related('scheme', 'course', 'faculty')
-    
-    if year:
-        sc_qs = sc_qs.filter(scheme__year=year)
-    if semester:
-        sc_qs = sc_qs.filter(semester=semester)
+    # parse query params (support multiple param names)
+    year_raw = request.GET.get('year') or request.GET.get('academic_year')
+    sem_raw = request.GET.get('semester') or request.GET.get('sem')
 
-    # Order by semester and course code (scheme__year causes issues with null schemes)
-    sc_qs = sc_qs.order_by('semester', 'course_code')
-
-    # 2) Get HOD assignment for this branch (safe, idempotent)
     try:
-        hod_assignment = HODAssignment.objects.get(branch__id=branch_id)
+        year = int(year_raw) if year_raw not in (None, '', 'None') else None
+    except Exception:
+        year = None
+    try:
+        semester = int(sem_raw) if sem_raw not in (None, '', 'None') else None
+    except Exception:
+        semester = None
+
+    # find HODAssignment for this branch if present
+    try:
+        hod_assignment = HODAssignment.objects.get(branch=branch)
     except HODAssignment.DoesNotExist:
         hod_assignment = None
-    except Exception:
-        hod_assignment = None
 
-    if hod_assignment:
-        with transaction.atomic():
-            for sc in sc_qs:
-                # create or get CourseAllocation that corresponds to this schemecourse
-                ca, created = CourseAllocation.objects.get_or_create(
-                    hod_assignment=hod_assignment,
-                    course_code=sc.course_code,
-                    defaults={
-                        'course_title': getattr(sc, 'course_title', ''),
-                    }
-                )
-                # create/update faculty assignment if sc.faculty set
-                if getattr(sc, 'faculty_id', None):
-                    FacultyAssignment.objects.update_or_create(
-                        course_allocation=ca,
-                        defaults={'faculty_id': sc.faculty_id}
-                    )
+    # Build scheme_qs defensively
+    scheme_qs = SchemeCourse.objects.all().select_related('scheme')
 
-    # Convert to list of dicts for template rendering
+    # Try to restrict scheme_qs to this branch via several likely lookups.
+    branch_lookups = ['scheme__branch', 'scheme__branch_id', 'scheme__branch__pk']
+    filtered_by_branch = False
+    for lk in branch_lookups:
+        try:
+            scheme_qs = scheme_qs.filter(**{lk: branch})
+            filtered_by_branch = True
+            break
+        except (FieldError, ValueError):
+            scheme_qs = SchemeCourse.objects.all().select_related('scheme')
+
+    # If user provided year, try common year lookups
+    if year is not None:
+        year_lookups = ['scheme__year', 'scheme__academic_year', 'year', 'academic_year', 'scheme__admission_year']
+        matched_year = False
+        for lk in year_lookups:
+            try:
+                temp_qs = scheme_qs.filter(**{lk: year})
+                scheme_qs = temp_qs
+                matched_year = True
+                break
+            except (FieldError, ValueError):
+                continue
+        if not matched_year:
+            scheme_qs = SchemeCourse.objects.none()
+
+    # If user provided semester, try common semester lookups
+    if semester is not None and scheme_qs.exists():
+        sem_lookups = ['semester', 'scheme__semester', 'scheme__sem', 'term']
+        matched_sem = False
+        for lk in sem_lookups:
+            try:
+                temp_qs = scheme_qs.filter(**{lk: semester})
+                scheme_qs = temp_qs
+                matched_sem = True
+                break
+            except (FieldError, ValueError):
+                continue
+        if not matched_sem:
+            # if year/semester requested but semester couldn't be matched, set to empty
+            if year is not None or semester is not None:
+                scheme_qs = SchemeCourse.objects.none()
+
+    # Collect course codes from scheme rows (these identify the courses for that branch/year/sem)
+    scheme_codes = list(scheme_qs.values_list('course_code', flat=True).distinct())
+
+    # If we have no scheme_codes but user selected year/semester, decide fallback behaviour.
+    # Set fallback_to_allocations = True to show HOD allocations when no scheme rows found.
+    fallback_to_allocations = True
+
+    if (year is not None or semester is not None) and not scheme_codes:
+        if fallback_to_allocations:
+            # Show allocations for the HOD (if present) or none
+            if hod_assignment:
+                course_alloc_qs = CourseAllocation.objects.filter(hod_assignment=hod_assignment)
+            else:
+                course_alloc_qs = CourseAllocation.objects.none()
+        else:
+            course_alloc_qs = CourseAllocation.objects.none()
+    else:
+        # Normal flow: use scheme_codes (if present) or show allocations for HOD when no filters applied
+        if hod_assignment:
+            if scheme_codes:
+                course_alloc_qs = CourseAllocation.objects.filter(hod_assignment=hod_assignment, course_code__in=scheme_codes)
+            else:
+                course_alloc_qs = CourseAllocation.objects.filter(hod_assignment=hod_assignment)
+        else:
+            if scheme_codes:
+                course_alloc_qs = CourseAllocation.objects.filter(course_code__in=scheme_codes)
+            else:
+                course_alloc_qs = CourseAllocation.objects.none()
+
+    # Prefetch latest faculty assignments for each course allocation
+    fa_prefetch = Prefetch(
+        'facultyassignment_set',
+        queryset=FacultyAssignment.objects.select_related('faculty').order_by('assigned_on'),
+        to_attr='fa_list'
+    )
+    course_alloc_qs = course_alloc_qs.prefetch_related(fa_prefetch)
+
     assignments = []
-    for sc in sc_qs:
+    for ca in course_alloc_qs:
+        fa_obj = (getattr(ca, 'fa_list', [])[-1]) if getattr(ca, 'fa_list', []) else None
+        assigned_faculty_name = None
+        assigned_on = None
+        if fa_obj:
+            assigned_on = fa_obj.assigned_on
+            faculty_profile = fa_obj.faculty
+            user = getattr(faculty_profile, 'user', None)
+            if user:
+                assigned_faculty_name = user.get_full_name() or user.username or getattr(user, 'email', '')
+            else:
+                assigned_faculty_name = getattr(faculty_profile, 'display_name', None) or str(faculty_profile)
+
         assignments.append({
-            'course_code': sc.course_code,
-            'course_title': sc.course.course_title if sc.course else sc.course_code,
-            'year': sc.scheme.year if sc.scheme else '',
-            'semester': sc.semester,
-            'assigned_faculty_name': sc.faculty.get_full_name() if sc.faculty else 'Unassigned',
+            'course_code': ca.course_code,
+            'course_title': getattr(ca, 'course_title', '') or '',
+            'credits': getattr(ca, 'credits', None),
+            'assigned_faculty_name': assigned_faculty_name,
+            'assigned_on': assigned_on,
+            'course_allocation_id': ca.id,
         })
 
-    # Pass data to template for display
+    assignments = sorted(assignments, key=lambda x: x['course_code'])
+
     context = {
-        'assignments': assignments,
-        'branch_id': branch_id,
+        'branch': branch,
         'year': year,
         'semester': semester,
+        'assignments': assignments,
+        'hod_assignment': hod_assignment,
     }
-    return render(request, 'hod/faculty_assignment_detail.html', context)
-# --- end patch ---
+    return render(request, 'hod/faculty_assignments_detail.html', context)
+
+
+# optional legacy view for hod_assignment id if you used it elsewhere
+@login_required
+def faculty_assignments_detail_by_hod(request, hod_assignment_id):
+    try:
+        hod_assignment = HODAssignment.objects.get(pk=hod_assignment_id)
+    except HODAssignment.DoesNotExist:
+        return redirect('hod:dashboard_redirect')
+    return faculty_assignments_detail(request, branch_pk=hod_assignment.branch.pk)
 
 
 @login_required
@@ -2398,123 +2376,166 @@ def save_scheme_courses(request, branch_pk, year, semester):
     
     return redirect('hod:create_scheme', branch_pk=branch_pk, year=year, semester=semester)
 
+# Add / ensure these imports are present at top of hod/views.py
+import logging
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.db import transaction
+from django.db.models import Q
+from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
+from django.utils import timezone
+
+# local models - adjust names if your project uses different class names
+from users.models import CustomUser
+
+# academics models may be named differently in your project.
+# I try to import commonly used names and fall back to None if not present.
+try:
+    # In your project you used `CollegeLevelCourse` earlier in screenshots.
+    from academics.models import CollegeLevelCourse as DeanCourse, Branch
+except Exception:
+    try:
+        # fallback name
+        from academics.models import Course as DeanCourse, Branch
+    except Exception:
+        DeanCourse = None
+        Branch = None
+
+# HOD app models
+from .models import SchemeCourse, Faculty, FacultyAssignment, CourseAllocation, HODAssignment
+
+logger = logging.getLogger(__name__)
+
+
 @login_required
 def create_scheme(request, branch_pk, year, semester):
     """
-    Handle both GET (show form) and POST (save scheme).
+    HOD: show scheme form (GET) and save submitted scheme rows (POST).
+    When HOD saves rows this ensures CourseAllocation and FacultyAssignment objects
+    are created/updated for the HOD (linked via HODAssignment).
     """
     branch = get_object_or_404(Branch, pk=branch_pk)
     faculty_list = CustomUser.objects.filter(role='faculty', is_active=True)
 
-    # safe dean course queryset for branch or college-wide
-    try:
-        dean_qs = Course.objects.filter(Q(branch__isnull=True) | Q(branch=branch))
-        # if model has semester field, filter by sem
-        if hasattr(Course, 'semester'):
-            try:
-                dean_qs = dean_qs.filter(semester=semester)
-            except Exception:
-                # if semester field uses string/other format, try cast
-                pass
-    except Exception:
-        dean_qs = Course.objects.none()
-
-    # Convert to simple dicts (make faculty_id an int or None)
+    # Build Dean course list (display only) using whatever DeanCourse is available
     dean_courses = []
-    for c in dean_qs:
-        # safely get faculty id as int if present
-        f_id = None
-        if hasattr(c, 'faculty_id') and getattr(c, 'faculty_id') not in (None, ''):
-            try:
-                f_id = int(getattr(c, 'faculty_id'))
-            except Exception:
+    if DeanCourse is not None:
+        try:
+            dean_qs = DeanCourse.objects.filter(Q(branch__isnull=True) | Q(branch=branch))
+            if hasattr(DeanCourse, 'semester'):
                 try:
-                    # if c.faculty is a relation
-                    f_obj = getattr(c, 'faculty', None)
-                    f_id = int(getattr(f_obj, 'id')) if f_obj else None
+                    dean_qs = dean_qs.filter(semester=semester)
                 except Exception:
-                    f_id = None
+                    pass
+        except Exception:
+            dean_qs = DeanCourse.objects.none()
 
-        dean_courses.append({
-            'id': getattr(c, 'id', None),
-            'category': getattr(c, 'course_category', '') or '',
-            'course_code': getattr(c, 'course_code', '') or '',
-            'course_title': getattr(c, 'course_title', '') or '',
-            'l': int(getattr(c, 'teaching_hours_L', 0) or 0),
-            't': int(getattr(c, 'teaching_hours_T', 0) or 0),
-            'p': int(getattr(c, 'teaching_hours_P', 0) or 0),
-            'total_hours': (int(getattr(c, 'teaching_hours_L', 0) or 0)
-                            + int(getattr(c, 'teaching_hours_T', 0) or 0)
-                            + int(getattr(c, 'teaching_hours_P', 0) or 0)),
-            'cie': int(getattr(c, 'cie_marks', 0) or 0),
-            'see': int(getattr(c, 'see_marks', 0) or 0),
-            'total_marks': (int(getattr(c, 'cie_marks', 0) or 0)
-                            + int(getattr(c, 'see_marks', 0) or 0)),
-            'credits': getattr(c, 'credits', 0) or 0,
-            'faculty_id': f_id,
-            'faculty_username': getattr(getattr(c, 'faculty', None), 'username', '') if hasattr(c, 'faculty') else '',
-        })
+        for c in dean_qs:
+            try:
+                f_id = None
+                if hasattr(c, 'faculty_id') and getattr(c, 'faculty_id') not in (None, ''):
+                    try:
+                        f_id = int(getattr(c, 'faculty_id'))
+                    except Exception:
+                        f_obj = getattr(c, 'faculty', None)
+                        f_id = int(getattr(f_obj, 'id')) if f_obj else None
+                dean_courses.append({
+                    'id': getattr(c, 'id', None),
+                    'category': getattr(c, 'course_category', '') or '',
+                    'course_code': getattr(c, 'course_code', '') or '',
+                    'course_title': getattr(c, 'course_title', '') or '',
+                    'l': int(getattr(c, 'teaching_hours_L', 0) or 0),
+                    't': int(getattr(c, 'teaching_hours_T', 0) or 0),
+                    'p': int(getattr(c, 'teaching_hours_P', 0) or 0),
+                    'total_hours': (int(getattr(c, 'teaching_hours_L', 0) or 0)
+                                    + int(getattr(c, 'teaching_hours_T', 0) or 0)
+                                    + int(getattr(c, 'teaching_hours_P', 0) or 0)),
+                    'cie': int(getattr(c, 'cie_marks', 0) or 0),
+                    'see': int(getattr(c, 'see_marks', 0) or 0),
+                    'total_marks': (int(getattr(c, 'cie_marks', 0) or 0)
+                                    + int(getattr(c, 'see_marks', 0) or 0)),
+                    'credits': getattr(c, 'credits', 0) or 0,
+                    'faculty_id': f_id,
+                    'faculty_username': getattr(getattr(c, 'faculty', None), 'username', '') if hasattr(c, 'faculty') else '',
+                })
+            except Exception:
+                # skip problematic dean course rows; don't break form rendering
+                logger.exception("Error preparing dean course data for display (course id=%s).", getattr(c, 'id', None))
 
+    # POST: user clicked Save Scheme / Save & Download
     if request.method == 'POST':
-        # Cancel/back support
+        # handle cancel/back buttons
         if 'cancel' in request.POST or 'back' in request.POST:
             dashboard_url = reverse('hod:dashboard_self', args=[branch_pk])
             return redirect(f"{dashboard_url}?year={year}&semester={semester}")
 
-        # Clear messages
+        # clear any previous messages
         list(messages.get_messages(request))
 
-        created = 0
+        created_count = 0
         hod_assignment = getattr(request.user, 'hod_assignment', None)
 
-        # --- Save main scheme rows ---
+        # MAIN rows loop: index 1..N with form names like code_new_1, title_new_1, etc.
         i = 1
         while True:
-            code = request.POST.get(f'code_new_{i}', '').strip()
-            title = request.POST.get(f'title_new_{i}', '').strip()
+            code = (request.POST.get(f'code_new_{i}', '') or '').strip()
+            title = (request.POST.get(f'title_new_{i}', '') or '').strip()
             if not code and not title:
                 break
 
+            # numeric fields (safe parsing)
             l = request.POST.get(f'l_new_{i}') or 0
             t = request.POST.get(f't_new_{i}') or 0
             p = request.POST.get(f'p_new_{i}') or 0
             try:
                 total_hours = int(request.POST.get(f'total_hours_new_{i}') or (int(l or 0) + int(t or 0) + int(p or 0)))
             except Exception:
-                total_hours = (int(l or 0) + int(t or 0) + int(p or 0))
+                total_hours = int((int(l or 0) + int(t or 0) + int(p or 0)))
             cie = request.POST.get(f'cie_new_{i}') or 0
             see = request.POST.get(f'see_new_{i}') or 0
             try:
                 total_marks = int(request.POST.get(f'total_marks_new_{i}') or (int(cie or 0) + int(see or 0)))
             except Exception:
-                total_marks = (int(cie or 0) + int(see or 0))
+                total_marks = int((int(cie or 0) + int(see or 0)))
             credits = request.POST.get(f'credits_new_{i}') or 0
             faculty_id = request.POST.get(f'faculty_new_{i}') or None
             category = request.POST.get(f'category_new_{i}') or None
 
             try:
                 with transaction.atomic():
-                    # Create SchemeCourse
-                    sc = SchemeCourse.objects.create(
-                        branch=branch_pk,
-                        year=int(year),
-                        semester=int(semester),
-                        course_code=code,
-                        course_title=title if hasattr(SchemeCourse, 'course_title') else None,
-                        l=int(l or 0),
-                        t=int(t or 0),
-                        p=int(p or 0),
-                        total_hours=int(total_hours or 0),
-                        cie=int(cie or 0),
-                        see=int(see or 0),
-                        total_marks=int(total_marks or 0),
-                        credits=int(credits or 0),
-                        faculty=None,
-                        category=category,
-                        is_elective=False
-                    )
+                    # Try to create SchemeCourse with the richer set of fields (works if model has them)
+                    sc = None
+                    try:
+                        sc = SchemeCourse.objects.create(
+                            branch=branch_pk,
+                            year=int(year),
+                            semester=int(semester),
+                            course_code=code,
+                            # some projects don't have course_title field; guard with hasattr
+                            **({'course_title': title} if hasattr(SchemeCourse, 'course_title') else {}),
+                            **({'l': int(l or 0)} if hasattr(SchemeCourse, 'l') else {}),
+                            **({'t': int(t or 0)} if hasattr(SchemeCourse, 't') else {}),
+                            **({'p': int(p or 0)} if hasattr(SchemeCourse, 'p') else {}),
+                            **({'total_hours': int(total_hours or 0)} if hasattr(SchemeCourse, 'total_hours') else {}),
+                            **({'cie': int(cie or 0)} if hasattr(SchemeCourse, 'cie') else {}),
+                            **({'see': int(see or 0)} if hasattr(SchemeCourse, 'see') else {}),
+                            **({'total_marks': int(total_marks or 0)} if hasattr(SchemeCourse, 'total_marks') else {}),
+                            **({'credits': float(credits or 0)} if hasattr(SchemeCourse, 'credits') else {}),
+                            **({'category': category} if hasattr(SchemeCourse, 'category') else {}),
+                            **({'is_elective': False} if hasattr(SchemeCourse, 'is_elective') else {}),
+                        )
+                    except Exception:
+                        # fallback: create minimal SchemeCourse row (only fields that must exist)
+                        sc_kwargs = {'course_code': code, 'semester': semester}
+                        # attempt to attach to a Scheme object if your model requires that; skip if not present
+                        try:
+                            sc = SchemeCourse.objects.create(**sc_kwargs)
+                        except Exception:
+                            # if minimal creation fails, raise so transaction rolls back and we log
+                            raise
 
-                    # ===== CREATE/UPDATE CourseAllocation =====
+                    # Ensure CourseAllocation exists for this HOD
                     course_alloc = None
                     if hod_assignment:
                         course_alloc, ca_created = CourseAllocation.objects.get_or_create(
@@ -2526,72 +2547,84 @@ def create_scheme(request, branch_pk, year, semester):
                                 'teaching_hours_L': int(l or 0),
                                 'teaching_hours_T': int(t or 0),
                                 'teaching_hours_P': int(p or 0),
-                                'credits': int(credits or 0)
+                                'credits': float(credits or 0),
                             }
                         )
-                        logger.info(f"CourseAllocation {'created' if ca_created else 'retrieved'}: hod={hod_assignment.pk}, code={code}")
+                        if not ca_created:
+                            # update basic hours/credits if they changed
+                            changed = False
+                            if hasattr(course_alloc, 'teaching_hours_L') and course_alloc.teaching_hours_L != int(l or 0):
+                                course_alloc.teaching_hours_L = int(l or 0); changed = True
+                            if hasattr(course_alloc, 'teaching_hours_T') and course_alloc.teaching_hours_T != int(t or 0):
+                                course_alloc.teaching_hours_T = int(t or 0); changed = True
+                            if hasattr(course_alloc, 'teaching_hours_P') and course_alloc.teaching_hours_P != int(p or 0):
+                                course_alloc.teaching_hours_P = int(p or 0); changed = True
+                            if hasattr(course_alloc, 'credits') and float(course_alloc.credits or 0) != float(credits or 0):
+                                course_alloc.credits = float(credits or 0); changed = True
+                            if changed:
+                                course_alloc.save()
 
-                    # ===== ASSIGN FACULTY & CREATE FacultyAssignment =====
+                    # If faculty chosen, link sc.faculty (if available) and create/update FacultyAssignment
                     if faculty_id:
                         try:
-                            faculty_user = CustomUser.objects.get(id=faculty_id)
-                            faculty_profile, fp_created = Faculty.objects.get_or_create(
+                            faculty_user = CustomUser.objects.get(id=int(faculty_id))
+                            faculty_profile, _ = Faculty.objects.get_or_create(
                                 user=faculty_user,
                                 defaults={'department': getattr(hod_assignment.branch, 'name', '') if hod_assignment else ''}
                             )
-                            # Assign to SchemeCourse
-                            sc.faculty = faculty_user
-                            sc.save(update_fields=['faculty'])
+                            # attach to scheme row if model supports it
+                            try:
+                                # If SchemeCourse has a faculty FK field
+                                if hasattr(sc, 'faculty'):
+                                    sc.faculty = faculty_user
+                                    sc.save(update_fields=['faculty'])
+                            except Exception:
+                                # ignore if scheme model doesn't accept faculty in same way
+                                pass
 
-                            # Create FacultyAssignment linked to CourseAllocation
+                            # create or update FacultyAssignment linked to CourseAllocation (if course_alloc exists)
                             if course_alloc:
-                                fa, fa_created = FacultyAssignment.objects.get_or_create(
+                                fa, fa_created = FacultyAssignment.objects.update_or_create(
                                     course_allocation=course_alloc,
-                                    defaults={
-                                        'faculty': faculty_profile,
-                                        'assigned_on': timezone.now()
-                                    }
+                                    defaults={'faculty': faculty_profile, 'assigned_on': timezone.now()}
                                 )
-                                if not fa_created:
-                                    # Update if already exists
-                                    fa.faculty = faculty_profile
-                                    fa.assigned_on = timezone.now()
-                                    fa.save()
-                                
-                                logger.info(f"FacultyAssignment {'created' if fa_created else 'updated'}: faculty={faculty_user.username}, code={code}, alloc={course_alloc.pk}")
+                                logger.info("FacultyAssignment %s for code=%s alloc=%s", 'created' if fa_created else 'updated', code, getattr(course_alloc, 'pk', None))
+
                         except CustomUser.DoesNotExist:
-                            logger.warning(f"Faculty user id={faculty_id} does not exist")
-                    
-                    created += 1
+                            logger.warning("Faculty user not found (id=%s) while saving scheme.", faculty_id)
+
+                    created_count += 1
             except Exception as e:
-                logger.exception(f"Failed to create main scheme row {i}: {e}")
+                # log but continue to next row - transaction ensures partial row not saved
+                logger.exception("Failed to save scheme row #%s (code=%s): %s", i, code, e)
             i += 1
 
-        # --- Save elective sections (pec, oec, esc, aec) ---
+        # Elective sections (pec, oec, esc, aec) — same logic, fewer numeric fields
         for section in ['pec', 'oec', 'esc', 'aec']:
             j = 1
             while True:
-                code = request.POST.get(f'{section}_code_{j}', '').strip()
-                title = request.POST.get(f'{section}_title_{j}', '').strip()
+                code = (request.POST.get(f'{section}_code_{j}', '') or '').strip()
+                title = (request.POST.get(f'{section}_title_{j}', '') or '').strip()
                 if not code and not title:
                     break
                 faculty_id = request.POST.get(f'{section}_faculty_{j}') or None
-                
+
                 try:
                     with transaction.atomic():
-                        # Create SchemeCourse for elective
-                        sc = SchemeCourse.objects.create(
-                            branch=branch_pk,
-                            year=int(year),
-                            semester=int(semester),
-                            course_code=code,
-                            course_title=title if hasattr(SchemeCourse, 'course_title') else None,
-                            faculty=None,
-                            category=section.upper(),
-                            is_elective=True
-                        )
+                        sc = None
+                        try:
+                            sc = SchemeCourse.objects.create(
+                                branch=branch_pk,
+                                year=int(year),
+                                semester=int(semester),
+                                course_code=code,
+                                **({'course_title': title} if hasattr(SchemeCourse, 'course_title') else {}),
+                                **({'category': section.upper()} if hasattr(SchemeCourse, 'category') else {}),
+                                **({'is_elective': True} if hasattr(SchemeCourse, 'is_elective') else {}),
+                            )
+                        except Exception:
+                            sc = SchemeCourse.objects.create(course_code=code)
 
-                        # ===== CREATE/UPDATE CourseAllocation FOR ELECTIVE =====
                         course_alloc = None
                         if hod_assignment:
                             course_alloc, ca_created = CourseAllocation.objects.get_or_create(
@@ -2606,52 +2639,39 @@ def create_scheme(request, branch_pk, year, semester):
                                     'credits': 0
                                 }
                             )
-                            logger.info(f"CourseAllocation (elective) {'created' if ca_created else 'retrieved'}: hod={hod_assignment.pk}, code={code}")
 
-                        # ===== ASSIGN FACULTY & CREATE FacultyAssignment FOR ELECTIVE =====
                         if faculty_id:
                             try:
-                                faculty_user = CustomUser.objects.get(id=faculty_id)
-                                faculty_profile, fp_created = Faculty.objects.get_or_create(
+                                faculty_user = CustomUser.objects.get(id=int(faculty_id))
+                                faculty_profile, _ = Faculty.objects.get_or_create(
                                     user=faculty_user,
                                     defaults={'department': getattr(hod_assignment.branch, 'name', '') if hod_assignment else ''}
                                 )
-                                # Assign to SchemeCourse
-                                sc.faculty = faculty_user
-                                sc.save(update_fields=['faculty'])
-
-                                # Create FacultyAssignment linked to CourseAllocation
+                                if hasattr(sc, 'faculty'):
+                                    sc.faculty = faculty_user
+                                    sc.save(update_fields=['faculty'])
                                 if course_alloc:
-                                    fa, fa_created = FacultyAssignment.objects.get_or_create(
+                                    FacultyAssignment.objects.update_or_create(
                                         course_allocation=course_alloc,
-                                        defaults={
-                                            'faculty': faculty_profile,
-                                            'assigned_on': timezone.now()
-                                        }
+                                        defaults={'faculty': faculty_profile, 'assigned_on': timezone.now()}
                                     )
-                                    if not fa_created:
-                                        # Update if already exists
-                                        fa.faculty = faculty_profile
-                                        fa.assigned_on = timezone.now()
-                                        fa.save()
-                                    
-                                    logger.info(f"FacultyAssignment (elective) {'created' if fa_created else 'updated'}: faculty={faculty_user.username}, code={code}, alloc={course_alloc.pk}")
                             except CustomUser.DoesNotExist:
-                                logger.warning(f"Faculty user id={faculty_id} does not exist (elective)")
-                        
-                        created += 1
+                                logger.warning("Faculty user id=%s not found for elective %s.", faculty_id, code)
+
+                        created_count += 1
                 except Exception as e:
-                    logger.exception(f"Failed to create elective {section} row {j}: {e}")
+                    logger.exception("Failed to save elective %s row %s: %s", section, j, e)
                 j += 1
 
-        if created:
-            messages.success(request, f"Scheme saved successfully! ({created} rows created)")
+        # messages & redirect
+        if created_count:
+            messages.success(request, f"Scheme saved successfully! ({created_count} rows created). CourseAllocation/FacultyAssignment should be created for HOD.")
         else:
             messages.info(request, "No rows were created. Check submitted data.")
 
         return redirect('hod:create_scheme', branch_pk=branch_pk, year=year, semester=semester)
 
-    # GET: render form
+    # GET -> render template
     context = {
         'branch': branch,
         'year': year,
@@ -2659,4 +2679,217 @@ def create_scheme(request, branch_pk, year, semester):
         'dean_courses': dean_courses,
         'faculty_list': faculty_list,
     }
-    return render(request, 'hod/create_scheme.html', context)    
+    return render(request, 'hod/create_scheme.html', context)
+
+# hod/views.py
+from django.shortcuts import get_object_or_404, redirect
+from django.contrib import messages
+from django.utils import timezone
+from django.contrib.auth.decorators import login_required
+
+@login_required
+def approve_faculty_pdf(request, pk):
+    if request.method != 'POST':
+        return redirect('hod:dashboard_self', pk)  # or appropriate redirect
+
+    from django.apps import apps
+    try:
+        FacultySyllabusPDF = apps.get_model('hod', 'FacultySyllabusPDF')
+    except LookupError:
+        messages.error(request, "Approve feature unavailable.")
+        return redirect('hod:dashboard_self', pk)
+
+    obj = get_object_or_404(FacultySyllabusPDF, pk=pk)
+    obj.approved = True
+    obj.approved_by = request.user
+    obj.approved_at = timezone.now()
+    obj.save()
+    messages.success(request, "Faculty PDF approved.")
+    return redirect(request.META.get('HTTP_REFERER') or 'hod:dashboard_self', pk)
+
+# hod/views.py
+from django.http import HttpResponse
+from django.contrib import messages
+from django.shortcuts import redirect
+from io import BytesIO
+from django.apps import apps
+from django.contrib.auth.decorators import login_required
+
+# --- Pdf merging compatibility shim ---
+# Try to import PdfMerger (preferred). If not available, fall back to PdfReader/PdfWriter.
+try:
+    # Newer pypdf provides PdfMerger
+    from pypdf import PdfMerger  # type: ignore
+
+    def merge_pdfs(input_paths, output_stream):
+        """
+        Merge list of file paths or file-like objects into output_stream using PdfMerger.
+        input_paths: iterable of paths or file-like objects
+        output_stream: file-like object opened for binary write
+        """
+        merger = PdfMerger()
+        for p in input_paths:
+            merger.append(p)
+        merger.write(output_stream)
+        merger.close()
+
+except Exception:
+    # Fallback using PdfReader + PdfWriter (older/different pypdf versions)
+    from pypdf import PdfReader, PdfWriter  # type: ignore
+
+    def merge_pdfs(input_paths, output_stream):
+        """
+        Merge PDFs using PdfReader/PdfWriter.
+        input_paths: iterable of paths or file-like objects
+        output_stream: file-like object opened for binary write
+        """
+        writer = PdfWriter()
+        for p in input_paths:
+            reader = PdfReader(p)
+            for page in reader.pages:
+                writer.add_page(page)
+        writer.write(output_stream)
+        # Do not close output_stream here; caller manages it.
+
+
+@login_required
+def generate_combined_syllabus(request, branch_pk):
+    """
+    POST handler that merges selected scheme PDFs + approved faculty PDFs
+    into a single combined syllabus and returns it as a download.
+    """
+    if request.method != 'POST':
+        return redirect('hod:dashboard_self', branch_pk)
+
+    scheme_ids = request.POST.getlist('scheme_pdf_ids')
+    faculty_ids = request.POST.getlist('faculty_pdf_ids')
+
+    files_to_merge = []
+
+    # get scheme files (try academics.SchemePDF then hod.SchemeDocument)
+    SchemeModel = None
+    for candidate in (('academics', 'SchemePDF'), ('hod', 'SchemeDocument')):
+        try:
+            SchemeModel = apps.get_model(candidate[0], candidate[1])
+            break
+        except LookupError:
+            SchemeModel = None
+
+    if SchemeModel and scheme_ids:
+        for pk in scheme_ids:
+            try:
+                s = SchemeModel.objects.get(pk=pk)
+                # prefer file path if available
+                if getattr(s, 'pdf_file', None):
+                    try:
+                        files_to_merge.append(s.pdf_file.path)
+                    except Exception:
+                        # fallback to file-like object
+                        try:
+                            files_to_merge.append(s.pdf_file)
+                        except Exception:
+                            continue
+            except Exception:
+                continue
+
+    # approved faculty pdfs
+    try:
+        FacultySyllabusPDF = apps.get_model('hod', 'FacultySyllabusPDF')
+    except LookupError:
+        FacultySyllabusPDF = None
+
+    if FacultySyllabusPDF and faculty_ids:
+        for pk in faculty_ids:
+            try:
+                f = FacultySyllabusPDF.objects.get(pk=pk, approved=True)
+                if getattr(f, 'pdf_file', None):
+                    try:
+                        files_to_merge.append(f.pdf_file.path)
+                    except Exception:
+                        try:
+                            files_to_merge.append(f.pdf_file)
+                        except Exception:
+                            continue
+            except Exception:
+                continue
+
+    if not files_to_merge:
+        messages.error(request, "No PDFs selected or available to merge.")
+        # preserve referer if possible
+        referer = request.META.get('HTTP_REFERER')
+        if referer:
+            return redirect(referer)
+        return redirect('hod:dashboard_self', branch_pk)
+
+    # Merge using compatibility helper
+    try:
+        out = BytesIO()
+        merge_pdfs(files_to_merge, out)
+        out.seek(0)
+
+        year = request.POST.get('year', '').strip()
+        semester = request.POST.get('semester', '').strip()
+        filename = f"combined_syllabus_{branch_pk}_{year}_sem{semester}.pdf"
+
+        response = HttpResponse(out.read(), content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
+    except Exception:
+        messages.error(request, "Failed to merge PDFs. Contact admin.")
+        referer = request.META.get('HTTP_REFERER')
+        if referer:
+            return redirect(referer)
+        return redirect('hod:dashboard_self', branch_pk)
+
+
+@login_required
+def create_combined_syllabus(request, branch_pk):
+    """
+    Render a page where HOD can select which scheme PDFs and approved faculty PDFs
+    to include in the combined syllabus PDF.
+    """
+    Branch = apps.get_model('academics', 'Branch')
+    branch = get_object_or_404(Branch, pk=branch_pk)
+
+    year = request.GET.get('year') or request.GET.get('academic_year') or request.POST.get('year', '')
+    semester = request.GET.get('semester') or request.POST.get('semester', '')
+
+    # scheme PDFs from hod.SchemeDocument
+    scheme_pdfs = []
+    try:
+        SchemeDoc = apps.get_model('hod', 'SchemeDocument')
+        qs = SchemeDoc.objects.filter(branch=branch)
+        if year:
+            qs = qs.filter(year=year)
+        if semester:
+            qs = qs.filter(semester=semester)
+        scheme_pdfs = qs.order_by('-created_at')
+    except LookupError:
+        scheme_pdfs = []
+
+    # faculty PDFs (hod.FacultySyllabusPDF) — show approved or not; selection template filters approved
+    faculty_pdfs = []
+    try:
+        FacultySyllabusPDF = apps.get_model('hod', 'FacultySyllabusPDF')
+        qs = FacultySyllabusPDF.objects.filter(branch=branch)
+        if year:
+            if 'year' in [f.name for f in FacultySyllabusPDF._meta.get_fields()]:
+                qs = qs.filter(year=year)
+            elif 'academic_year' in [f.name for f in FacultySyllabusPDF._meta.get_fields()]:
+                qs = qs.filter(academic_year=year)
+        if semester:
+            if 'semester' in [f.name for f in FacultySyllabusPDF._meta.get_fields()]:
+                qs = qs.filter(semester=semester)
+        faculty_pdfs = qs.order_by('-created_at')
+    except LookupError:
+        faculty_pdfs = []
+
+    context = {
+        'branch': branch,
+        'scheme_pdfs': scheme_pdfs,
+        'faculty_pdfs': faculty_pdfs,
+        'selected_year': year,
+        'selected_semester': semester,
+    }
+    return render(request, 'hod/create_combined_syllabus.html', context)
