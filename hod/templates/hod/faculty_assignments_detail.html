@@ -5,64 +5,91 @@
   <meta charset="utf-8">
   <title>Assigned Faculty Manager — {{ branch.name }}</title>
   <style>
-    body{font-family:Arial,Helvetica,sans-serif;background:#f6f7f8;color:#222;padding:18px;}
-    .card{background:#fff;border-radius:8px;padding:20px;box-shadow:0 2px 4px rgba(0,0,0,0.08);margin-bottom:20px;}
-    table{width:100%;border-collapse:collapse;margin:10px 0;}
-    th,td{padding:10px;border-bottom:1px solid #e9eef0;text-align:left;}
-    th{background:#8ADBE9;color:#fff;font-weight:700;}
-    .empty {color:#777;font-style:italic;padding:20px;text-align:center;}
-    .btn {display:inline-block;padding:10px 16px;background:#1e88e5;color:#fff;border-radius:4px;text-decoration:none;}
-    .btn-secondary{background:#6c757d;}
+    body { font-family: Arial, sans-serif; background:#f6f7f8; color:#222; padding:18px; }
+    .card { background:#fff; border-radius:8px; padding:20px; box-shadow:0 2px 4px rgba(0,0,0,0.1); margin-bottom:20px; }
+    h2 { margin:0 0 12px; color:#333; }
+    .section-subtitle { color:#666; font-size:0.9rem; margin-bottom:16px; }
+    table { width:100%; border-collapse:collapse; margin:12px 0; }
+    th { background:#8ADBE9; color:white; padding:10px; text-align:left; font-weight:bold; }
+    td { padding:10px; border-bottom:1px solid #ddd; }
+    tr:hover { background:#f9f9f9; }
+    .btn { display:inline-block; padding:10px 16px; background:#1e88e5; color:white; text-decoration:none; border-radius:4px; border:none; cursor:pointer; }
+    .btn-secondary { background:#6c757d; }
+    .empty-state { color:#999; font-style:italic; padding:20px; text-align:center; }
+    a { color:#1e88e5; text-decoration:none; }
+    a:hover { text-decoration:underline; }
   </style>
 </head>
 <body>
   <div class="card">
     <h2>Assigned Faculty & Submissions — {{ branch.name }}</h2>
-
     {% if year and semester %}
-      <p style="color:#444;margin-top:6px;">Showing assignments for Year <strong>{{ year }}</strong>, Semester <strong>{{ semester }}</strong>.</p>
-    {% else %}
-      <p style="color:#b72b3f;">No year/semester selected. Open this page from the HOD dashboard with a year & semester selected.</p>
+      <p class="section-subtitle">Showing assignments for Year {{ year }}, Semester {{ semester }}</p>
     {% endif %}
+    
+    <!-- Course Assignments Section -->
+<!-- Course Assignments -->
+<h3>Course Assignments</h3>
 
-    <h3 style="margin-top:18px;">Course Assignments</h3>
+{% if assignments %}
+  <table style="width:100%; border-collapse:collapse;">
+    <thead>
+      <tr style="background:#8ADBE9; color:#fff;">
+        <th style="padding:8px;text-align:left;">Course Code</th>
+        <th style="padding:8px;text-align:left;">Course Title</th>
+        <th style="padding:8px;text-align:center;">Year</th>
+        <th style="padding:8px;text-align:center;">Semester</th>
+        <th style="padding:8px;text-align:left;">Assigned Faculty</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in assignments %}
+        <tr>
+          <td style="padding:10px 8px; font-weight:700;">{{ a.course_code|default_if_none:"" }}</td>
+          <td style="padding:10px 8px;">{{ a.course_title|default_if_none:"" }}</td>
+          <td style="padding:10px 8px; text-align:center;">{{ a.year|default_if_none:"—" }}</td>
+          <td style="padding:10px 8px; text-align:center;">{{ a.semester|default_if_none:"—" }}</td>
+          <td style="padding:10px 8px;">{{ a.assigned_faculty_name|default_if_none:"Not assigned" }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p style="color:#666">No assignments found. Use "Create Schema" to add scheme rows first.</p>
+{% endif %}
 
-    {% if assignments %}
+
+    <!-- Faculty Syllabi Section -->
+    <h3 style="margin-top:24px;margin-bottom:12px;">Faculty Syllabi (All)</h3>
+    {% if submissions %}
       <table>
         <thead>
           <tr>
-            <th>Course Code</th>
-            <th>Course Title</th>
-            <th style="text-align:center">Credits</th>
-            <th style="text-align:center">Assigned On</th>
-            <th>Assigned Faculty</th>
+            <th>Course</th>
+            <th>Faculty</th>
+            <th>Status</th>
+            <th>Submitted On</th>
           </tr>
         </thead>
         <tbody>
-          {% for a in assignments %}
+          {% for submission in submissions %}
             <tr>
-              <td style="font-weight:700;">{{ a.course_code }}</td>
-              <td>{{ a.course_title }}</td>
-              <td style="text-align:center;">{{ a.credits }}</td>
-              <td style="text-align:center;">{% if a.assigned_on %}{{ a.assigned_on|date:"d M Y, H:i" }}{% else %}—{% endif %}</td>
-              <td>{{ a.assigned_faculty_name|default:"Not assigned" }}</td>
+              <td>{{ submission.course.course_code }} — {{ submission.course.course_title }}</td>
+              <td>{{ submission.faculty.get_full_name|default:submission.faculty.username }}</td>
+              <td>{{ submission.status|default:"PENDING" }}</td>
+              <td>{{ submission.submitted_at|date:"d M Y" }}</td>
             </tr>
           {% endfor %}
         </tbody>
       </table>
     {% else %}
-      <p class="empty">No assignments found for the selected year/semester.</p>
+      <p class="empty-state">No syllabus submissions found.</p>
     {% endif %}
 
-    <div style="margin-top:18px;">
-      {# Back to Dashboard: include year/semester when available #}
-      {% if year and semester %}
-        <a href="{% url 'hod:dashboard_self' branch.pk %}?year={{ year }}&semester={{ semester }}" class="btn btn-secondary">Back to Dashboard</a>
-          <a href="{% url 'hod:create_combined_syllabus' branch.pk %}?year={{ year }}&semester={{ semester }}" class="btn" style="margin-left:8px;">Create Combined Syllabus (Approved only)</a>
-      {% else %}
-        <a href="{% url 'hod:dashboard_self' branch.pk %}" class="btn btn-secondary">Back to Dashboard</a>
-          <a href="{% url 'hod:create_combined_syllabus' branch.pk %}" class="btn" style="margin-left:8px;">Create Combined Syllabus (Approved only)</a>
-      {% endif %}
+    <!-- Action Buttons -->
+    <div style="margin-top:20px;">
+      <a href="{% url 'hod:dashboard_self' branch.pk %}" class="btn btn-secondary">Back to Dashboard</a>
+      <a href="{% url 'hod:generate_full_pdf' branch.pk %}" class="btn" style="margin-left:8px;">Create Combined Syllabus (Approved only)</a>
     </div>
   </div>
 </body>

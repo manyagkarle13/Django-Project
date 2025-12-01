@@ -29,7 +29,7 @@ urlpatterns = [
     path('regenerate-scheme/<int:scheme_id>/', views.regenerate_scheme, name='regenerate_scheme'),
     
     path('faculty-assignments/detail/<int:hod_assignment_id>/', views.faculty_assignments_detail, name='faculty_assignments_detail_by_hod'),
-    path('faculty-assignments/<int:branch_pk>/', views.faculty_assignments_detail, name='faculty_assignments_detail'),
+    path('faculty-assignments/<int:branch_pk>/', views.faculty_assignments_detail, name='faculty_assignment_detail'),
     path('faculty-assignments/<int:assignment_id>/edit/', views.edit_assignment, name='edit_assignment'),
     path('faculty-assignments/<int:assignment_id>/remove/', views.remove_assignment, name='remove_assignment'),
     
@@ -46,13 +46,10 @@ urlpatterns = [
     path('edit-schema/<int:course_pk>/', views.edit_schema, name='edit_schema'),
     path('assign-faculty/<int:course_pk>/', views.assign_faculty, name='assign_faculty'),
     path('view-submission/<int:submission_pk>/', views.view_submission, name='view_submission'),
+    path('view-submission-pdf/<int:submission_pk>/', views.view_submission_pdf, name='view_submission_pdf'),
     path('approve-syllabus/<int:submission_pk>/', views.approve_syllabus, name='approve_syllabus'),
-     path('faculty-assignments/<int:branch_pk>/', views.faculty_assignments_detail, name='faculty_assignments_detail'),
-    path('faculty-assignments/detail/<int:hod_assignment_id>/', views.faculty_assignments_detail_by_hod, name='faculty_assignments_detail_by_hod'),
-    path('faculty-assignments/<int:assignment_id>/edit/', views.edit_assignment, name='edit_assignment'),
-    path('faculty-assignments/<int:assignment_id>/remove/', views.remove_assignment, name='remove_assignment'),
-    path('faculty-pdf/approve/<int:pk>/', views.approve_faculty_pdf, name='approve_faculty_pdf'),
-    path('generate-combined/<int:branch_pk>/', views.generate_combined_syllabus, name='generate_combined_syllabus'),
-    path('create-combined/<int:branch_pk>/', views.create_combined_syllabus, name='create_combined_syllabus'),
-
+    
+    # Combined Syllabus
+    path('create-combined-syllabus/<int:branch_pk>/', views.create_combined_syllabus, name='create_combined_syllabus'),
+    path('generate-combined-syllabus/<int:branch_pk>/', views.generate_combined_syllabus, name='generate_combined_syllabus'),
 ]

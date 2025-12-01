@@ -1,37 +1,40 @@
-<form method="post" action="{% url 'hod:generate_combined_syllabus' branch.pk %}">
+{% extends "base.html" %}
+{% block content %}
+<h2>Create Combined Syllabus</h2>
+<form method="post" action="{% if branch %}{% url 'hod:generate_combined_syllabus' branch.pk %}{% elif branch_pk %}{% url 'hod:generate_combined_syllabus' branch_pk %}{% else %}{{ request.path }}{% endif %}">
   {% csrf_token %}
-  <h4>Select parts to include in combined PDF</h4>
+  <input type="hidden" name="year" value="{{ year }}">
+  <input type="hidden" name="semester" value="{{ semester }}">
 
-  <fieldset>
-    <legend>Scheme PDFs (choose at least one if needed)</legend>
-    {% for s in scheme_pdfs %}
-      <label>
-        <input type="checkbox" name="scheme_pdf_ids" value="{{ s.pk }}">
-        {{ s.title|default:"Scheme " }} — {{ s.created_at|date:"d M Y" }}
-      </label><br>
-    {% empty %}
-      <p style="color:#666">No scheme PDFs available for this year/semester.</p>
-    {% endfor %}
-  </fieldset>
-
-  <fieldset style="margin-top:12px;">
-    <legend>Approved Faculty PDFs</legend>
-    {% for f in faculty_pdfs %}
-      {% if f.approved %}
-        <label>
-          <input type="checkbox" name="faculty_pdf_ids" value="{{ f.pk }}">
-          {{ f.created_by.get_full_name|default:f.created_by.username }} — {{ f.pdf_file.name|default:"PDF" }}
-        </label><br>
-      {% endif %}
-    {% empty %}
-      <p style="color:#666">No approved faculty PDFs available.</p>
-    {% endfor %}
-  </fieldset>
-
-  <input type="hidden" name="year" value="{{ selected_year }}">
-  <input type="hidden" name="semester" value="{{ selected_semester }}">
-
-  <div style="margin-top:12px;">
-    <button class="btn" type="submit">Generate combined syllabus PDF</button>
+  <div class="mb-3">
+    <label class="form-label">Include HOD Scheme (optional)</label>
+    <div class="input-group">
+      <div class="input-group-text">
+        <input type="checkbox" name="include_hod" id="include_hod">
+      </div>
+      <select name="scheme_id" class="form-select">
+        <option value="">-- choose scheme to include --</option>
+        {% for s in schemes %}
+          <option value="{{ s.pk }}">{{ s.branch_name }} - {{ s.title }} ({{ s.year }} Sem{{ s.semester }})</option>
+        {% endfor %}
+      </select>
+    </div>
   </div>
+
+  <h4>Approved Faculty PDFs</h4>
+  {% if approved_pdfs %}
+    {% for p in approved_pdfs %}
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="submissions" value="{{ p.pk }}" id="submission_{{ p.pk }}">
+        <label class="form-check-label" for="submission_{{ p.pk }}">
+          {% if p.course %}{{ p.course.course_code }}{% else %}{{ p.title }}{% endif %} — {% if p.course %}{{ p.course.course_title }}{% else %}{{ p.title }}{% endif %} — {{ p.created_by.get_full_name|default:p.created_by.username }} — Uploaded {{ p.created_at|date:"M j, Y, g:i a" }}
+        </label>
+      </div>
+    {% endfor %}
+  {% else %}
+    <p>No approved PDFs found for the selected filters.</p>
+  {% endif %}
+
+  <button class="btn btn-primary mt-3" type="submit">Generate Complete PDF</button>
 </form>
+{% endblock %}

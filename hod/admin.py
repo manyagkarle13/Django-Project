@@ -1,39 +1,55 @@
 from django.contrib import admin
-from .models import HODAssignment, CourseAllocation, Faculty, FacultyAssignment, ActivityLog
+from django.utils import timezone
 
-@admin.register(HODAssignment)
-class HODAssignmentAdmin(admin.ModelAdmin):
-    list_display = ('hod_user', 'branch', 'assigned_on')
-    list_filter = ('branch', 'assigned_on')
-    search_fields = ('hod_user__email', 'branch__name')
-    readonly_fields = ('assigned_on',)
+from .models import (
+    FacultySyllabusPDF,
+    CombinedSyllabus,
+    SchemeDocument,
+    CourseAllocation,
+    FacultyAssignment,
+)
+
+
+@admin.action(description='Mark selected faculty syllabi as approved')
+def approve_selected(modeladmin, request, queryset):
+    now = timezone.now()
+    updated = queryset.update(approved=True, approved_by=request.user, approved_at=now)
+    modeladmin.message_user(request, f"Marked {updated} file(s) as approved.")
+
+
+@admin.action(description='Mark selected faculty syllabi as unapproved')
+def unapprove_selected(modeladmin, request, queryset):
+    updated = queryset.update(approved=False, approved_by=None, approved_at=None)
+    modeladmin.message_user(request, f"Marked {updated} file(s) as unapproved.")
+
+
+@admin.register(FacultySyllabusPDF)
+class FacultySyllabusPDFAdmin(admin.ModelAdmin):
+    list_display = ('id', 'pdf_file', 'branch', 'year', 'semester', 'created_by', 'approved', 'approved_by', 'approved_at')
+    list_filter = ('approved', 'year', 'semester', 'branch')
+    search_fields = ('pdf_file', 'title', 'created_by__email', 'course__course_code')
+    actions = (approve_selected, unapprove_selected)
+
+
+@admin.register(CombinedSyllabus)
+class CombinedSyllabusAdmin(admin.ModelAdmin):
+    list_display = ('id', 'name', 'branch', 'year', 'semester', 'created_by', 'created_at')
+    search_fields = ('name',)
+
+
+@admin.register(SchemeDocument)
+class SchemeDocumentAdmin(admin.ModelAdmin):
+    list_display = ('id', 'branch_name', 'year', 'semester', 'title', 'created_by', 'created_at')
+    search_fields = ('branch_name', 'title')
 
 
 @admin.register(CourseAllocation)
 class CourseAllocationAdmin(admin.ModelAdmin):
-    list_display = ('course_code', 'course_title', 'course_category', 'credits')
-    list_filter = ('course_category', 'credits')
+    list_display = ('id', 'course_code', 'course_title', 'hod_assignment')
     search_fields = ('course_code', 'course_title')
-
-
-@admin.register(Faculty)
-class FacultyAdmin(admin.ModelAdmin):
-    list_display = ('id', 'department')
-    list_filter = ('department',)
-    search_fields = ('department',)
 
 
 @admin.register(FacultyAssignment)
 class FacultyAssignmentAdmin(admin.ModelAdmin):
-    list_display = ('faculty', 'course_allocation', 'assigned_on')
-    list_filter = ('assigned_on',)
-    search_fields = ('faculty__email', 'course_allocation__course_code')
-    readonly_fields = ('assigned_on',)
-
-
-@admin.register(ActivityLog)
-class ActivityLogAdmin(admin.ModelAdmin):
-    list_display = ('hod_user', 'action', 'created_at')
-    list_filter = ('action', 'created_at')
-    search_fields = ('hod_user__email', 'description')
-    readonly_fields = ('created_at', 'hod_user')
+    list_display = ('id', 'faculty', 'course_allocation', 'assigned_on')
+    search_fields = ('faculty__user__email', 'course_allocation__course_code')

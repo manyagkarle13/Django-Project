@@ -76,21 +76,10 @@
       text-align: center;
       display: inline-block;
       transition: all 0.3s ease;
-      text-decoration: none;
     }
     .btn-outline-primary:hover {
       background: var(--mce-blue);
       color: #fff;
-    }
-    .btn-disabled {
-      padding: 10px 14px;
-      background: #eee;
-      color: #999;
-      border-radius: 6px;
-      border: 1px solid #ddd;
-      display: inline-block;
-      cursor: not-allowed;
-      text-decoration: none;
     }
     .logout-btn { background:#444;padding:8px 12px;color:#fff;border-radius:6px;border:0;cursor:pointer; }
     table { width:100%;border-collapse:collapse;font-size:13px;margin-top:8px; }
@@ -119,6 +108,7 @@
         </div>
       </div>
       <div style="text-align:right">
+        <div style="font-weight:600">{{ user.get_full_name|default:user.username }}</div>
         <form method="post" action="{% url 'users:logout' %}" style="display:inline">
           {% csrf_token %}
           <button type="submit" class="logout-btn">Logout</button>
@@ -140,18 +130,12 @@
     <h2>☰ Menu</h2>
     <ul>
         <li>
-          <a href="{% url 'hod:dashboard_self' branch.pk %}" class="{% if request.resolver_match.url_name == 'dashboard_self' %}active{% endif %}">📊 Dashboard</a>
+            <a href="{% url 'hod:dashboard_self' branch.id %}" class="{% if request.resolver_match.url_name == 'dashboard_self' %}active{% endif %}">📊 Dashboard</a>
         </li>
         <li>
-          {% if selected_year and selected_semester %}
-            <a href="{% url 'hod:faculty_assignments_detail' branch.pk %}?year={{ selected_year }}&semester={{ selected_semester }}"
-               class="{% if request.resolver_match.url_name == 'faculty_assignments_detail' %}active{% endif %}">Faculty Assignments</a>
-          {% else %}
-            <a href="{% url 'hod:faculty_assignments_detail' branch.pk %}" class="{% if request.resolver_match.url_name == 'faculty_assignments_detail' %}active{% endif %}">Faculty Assignments</a>
-          {% endif %}
-        </li>
+            <a href="{% url 'hod:faculty_assignment_detail' branch.pk %}">Faculty Assignments</a>
         <li>
-          <a href="{% url 'hod:activity_history' %}" class="{% if request.resolver_match.url_name == 'activity_history' %}active{% endif %}">📋 Activity History</a>
+            <a href="{% url 'hod:activity_history' %}" class="{% if request.resolver_match.url_name == 'activity_history' %}active{% endif %}">📋 Activity History</a>
         </li>
     </ul>
   </div>
@@ -223,6 +207,7 @@
       {% endif %}
     </div>
 
+    {# ------------------- Assigned Faculty & Faculty Syllabi box ------------------- #}
     {% if selected_year and selected_semester %}
       <div class="card" style="text-align:left;">
         <h3 style="margin:0 0 8px;">Assigned Faculty & Faculty Syllabi</h3>
@@ -230,7 +215,10 @@
           Review HOD/Dean course assignments and the syllabi submitted by faculty below. Approve faculty syllabi to include them in the combined departmental syllabus.
         </p>
 
-        <!-- Faculty-submitted syllabi area (pending approval) -->
+        <!-- Assigned faculty table (shows dean courses + assigned faculty when present) -->
+        
+
+        <!-- Faculty-submitted syllabi area -->
         <div style="margin-top:18px;">
           <h4 style="margin:0 0 8px;">Faculty Syllabi Submitted (Pending approval)</h4>
           {% if pending_submissions %}
@@ -246,14 +234,38 @@
               <tbody>
                 {% for s in pending_submissions %}
                   <tr>
-                    <td>{{ s.course.course_code }} — {{ s.course.course_title }}</td>
-                    <td>{{ s.faculty.get_full_name|default:s.faculty.username }}</td>
-                    <td style="text-align:center">{{ s.submitted_on|date:"d M Y" }}</td>
+                    <td>
+                      {% if s.course %}
+                        <strong>{{ s.course.course_code }}</strong> — {{ s.course.course_title|default:s.course.course_code|default:"" }}
+                      {% elif s.title %}
+                        <strong>{{ s.title }}</strong>
+                      {% else %}
+                        Syllabus PDF
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if s.created_by %}
+                        {% with faculty_name=s.created_by.get_full_name|default:s.created_by.username %}
+                          {{ faculty_name|default:"—" }}
+                        {% endwith %}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td style="text-align:center">{{ s.created_at|date:"d M Y" }}</td>
                     <td style="text-align:center">
-                      <a href="{% url 'hod:view_submission' s.pk %}" target="_blank" rel="noopener">View</a>
-                      <form method="post" action="{% url 'hod:approve_syllabus' s.pk %}" style="display:inline;margin-left:8px;">
+                      {% if s.pdf_file %}
+                        <a href="{% url 'hod:view_submission_pdf' s.pk %}" target="_blank" rel="noopener" style="margin-right:8px;color:#1e88e5;text-decoration:none;">📄 View PDF</a>
+                      {% endif %}
+                      <form method="post" action="{% url 'hod:approve_syllabus' s.pk %}" style="display:inline;">
                         {% csrf_token %}
-                        <button class="btn" type="submit" style="background:#2e7d32;padding:6px 10px;border-radius:4px;">Approve</button>
+                        <input type="hidden" name="action" value="approve">
+                        <button class="btn" type="submit" style="background:#2e7d32;padding:6px 10px;border-radius:4px;margin-right:4px;color:#fff;border:none;cursor:pointer;">✓ Approve</button>
+                      </form>
+                      <form method="post" action="{% url 'hod:approve_syllabus' s.pk %}" style="display:inline;">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="reject">
+                        <button class="btn" type="submit" style="background:#b72b3f;padding:6px 10px;border-radius:4px;color:#fff;border:none;cursor:pointer;" onclick="return confirm('Reject this syllabus?')">✗ Reject</button>
                       </form>
                     </td>
                   </tr>
@@ -265,51 +277,41 @@
           {% endif %}
         </div>
 
-        <!-- Faculty-generated PDFs (Uploaded) -->
-        <div style="margin-top:18px;">
-          <h4 style="margin:0 0 8px;">Faculty-generated Syllabi (Uploaded)</h4>
-
-          {# Inserted snippet per request: shows uploaded PDFs + approve button #}
-          {% if faculty_pdfs %}
+        <!-- Approved Syllabi Section -->
+        <div style="margin-top:24px;">
+          <h4 style="margin:0 0 8px;">Approved Syllabi</h4>
+          {% if approved_submissions %}
             <table>
               <thead>
                 <tr>
-                  <th>PDF</th>
-                  <th>Uploaded By</th>
-                  <th>Uploaded On</th>
-                  <th style="text-align:center">Approved</th>
+                  <th>Course</th>
+                  <th>Faculty</th>
+                  <th style="text-align:center">Approved On</th>
                   <th style="text-align:center">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {% for pdf in faculty_pdfs %}
-                  <tr>
+                {% for s in approved_submissions %}
+                  <tr style="background-color:#e8f5e9;">
                     <td>
-                      {% if pdf.pdf_file %}
-                        <a href="{{ pdf.pdf_file.url }}" target="_blank">View PDF</a>
+                      {% if s.course %}
+                        <strong>{{ s.course.course_code }}</strong> — {{ s.course.course_title|default:s.course.course_code }}
+                      {% elif s.title %}
+                        <strong>{{ s.title }}</strong>
                       {% else %}
-                        (file missing)
+                        Syllabus PDF
                       {% endif %}
                     </td>
-                    <td>
-                      {% if pdf.created_by %}
-                        {{ pdf.created_by.get_full_name|default:pdf.created_by.username }}
-                      {% else %}
-                        —
+                    <td>{% if s.created_by %}{{ s.created_by.get_full_name|default:s.created_by.username }}{% else %}—{% endif %}</td>
+                    <td style="text-align:center">
+                      {% if s.approved_at %}{{ s.approved_at|date:"d M Y" }}{% else %}{{ s.created_at|date:"d M Y" }}{% endif %}
+                      {% if s.approved_by %}
+                        <br><small style="color:#666;">by {{ s.approved_by.get_full_name|default:s.approved_by.username }}</small>
                       {% endif %}
                     </td>
-                    <td>{{ pdf.created_at|date:"d M Y H:i" }}</td>
                     <td style="text-align:center">
-                      {% if pdf.approved %} ✅ Approved {% else %} ❌ {% endif %}
-                    </td>
-                    <td style="text-align:center">
-                      {% if not pdf.approved %}
-                        <form method="post" action="{% url 'hod:approve_faculty_pdf' pdf.pk %}" style="display:inline">
-                          {% csrf_token %}
-                          <button class="btn" type="submit" style="background:#2e7d32;padding:6px 8px;border-radius:4px;color:#fff;">Approve</button>
-                        </form>
-                      {% else %}
-                        <span style="color:#666">—</span>
+                      {% if s.pdf_file %}
+                        <a href="{{ s.pdf_file.url }}" target="_blank" rel="noopener" style="color:#1e88e5;text-decoration:none;">📄 View PDF</a>
                       {% endif %}
                     </td>
                   </tr>
@@ -317,23 +319,29 @@
               </tbody>
             </table>
           {% else %}
-            <p style="color:#666;margin:6px 0;">No faculty-generated PDFs found for Year {{ selected_year }}, Semester {{ selected_semester }}.</p>
+            <p style="color:#666;margin:6px 0;">No approved syllabi yet.</p>
           {% endif %}
-
         </div>
 
         <!-- Action buttons -->
         <div style="margin-top:16px;display:flex;gap:12px;flex-wrap:wrap;">
-          {# Open selection page where HOD can pick scheme PDFs and approved faculty PDFs #}
-          <a href="{% url 'hod:create_combined_syllabus' branch.pk %}?year={{ selected_year }}&semester={{ selected_semester }}" class="btn" style="background:#1e88e5;padding:10px 18px;border-radius:6px;color:#fff;text-decoration:none;">Create Combined Syllabus</a>
-
-          <a href="{% url 'hod:faculty_assignments_detail' branch.pk %}?year={{ selected_year }}&semester={{ selected_semester }}" class="btn btn-outline-primary" style="padding:10px 18px;border-radius:6px;text-decoration:none;display:inline-block;">
-            Open Assigned Faculty Manager
-          </a>
+          <form method="post" action="{% url 'hod:generate_full_pdf' branch.pk %}" style="display:inline;">
+            {% csrf_token %}
+            <input type="hidden" name="academic_year" value="{{ selected_year }}">
+            <input type="hidden" name="semester" value="{{ selected_semester }}">
+            <button class="btn" type="submit" style="background:#1e88e5;padding:10px 18px;border-radius:6px;">Create Combined Syllabus</button>
+          </form>
+          
+          {% if selected_year and selected_semester %}
+            <a href="{% url 'hod:faculty_assignment_detail' branch.pk %}?year={{ selected_year }}&semester={{ selected_semester }}" class="btn btn-outline-primary">Open Assigned Faculty Manager</a>
+          {% else %}
+            <a href="{% url 'hod:faculty_assignment_detail' branch.pk %}" class="btn btn-outline-primary" onclick="alert('Please select year and semester first'); return false;">Open Assigned Faculty Manager</a>
+          {% endif %}
 
         </div>
       </div>
     {% endif %}
+    {# ------------------- end Assigned Faculty section ------------------- #}
 
     <!-- Summary Card: Courses (Dean) & Credits for Sem X -->
     {% if selected_year and selected_semester %}
@@ -348,6 +356,7 @@
         </div>
       </div>
     {% endif %}
+
 
     <!-- Collapsible Semester Credits Card -->
     <div class="card">

@@ -5,7 +5,6 @@ from django.apps import apps
 from django.contrib import messages
 from django.urls import reverse, NoReverseMatch
 from django.http import HttpResponse, HttpResponseForbidden
-from urllib3 import request
 from hod.models import SchemeCourse, FacultyAssignment, Faculty, CourseAllocation
 import logging
 from django.utils import timezone
@@ -15,17 +14,10 @@ logger = logging.getLogger(__name__)
 
 @login_required
 def faculty_dashboard(request):
-    """Show faculty their assigned courses from SchemeCourse."""
+    """Show faculty their assigned courses from FacultyAssignment only."""
     user = request.user
 
-    # Fetch SchemeCourse rows assigned to this faculty user
-    assigned_courses = SchemeCourse.objects.filter(
-        faculty=user
-    ).select_related(
-        'course'
-    ).order_by('semester', 'course_code')
-
-    # Also fetch FacultyAssignment records for this faculty (via Faculty profile)
+    # Fetch FacultyAssignment records for this faculty (via Faculty profile)
     faculty_assignments = []
     faculty_profile = None
     try:
@@ -38,6 +30,13 @@ def faculty_dashboard(request):
     except Faculty.DoesNotExist:
         logger.info("Faculty profile not found for user %s", user.username)
         faculty_assignments = []
+
+    # Also fetch SchemeCourse rows assigned to this faculty user (for backward compatibility)
+    assigned_courses = SchemeCourse.objects.filter(
+        faculty=user
+    ).select_related(
+        'course'
+    ).order_by('semester', 'course_code')
 
     # Group courses by semester for better display
     courses_by_semester = {}
@@ -274,10 +273,9 @@ def submit_syllabus(request, course_id):
 
 def generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc=None):
     """
-    Generate a PDF (ReportLab) and also save a copy into hod.FacultySyllabusPDF
-    if that model exists. This version is defensive: it will not try to write
-    model fields whose DB columns are missing (so it won't fail if your table
-    schema is out-of-sync). Returns an HttpResponse with PDF bytes for download.
+    Generate a PDF (ReportLab) and also attempt to save a copy into hod.FacultySyllabusPDF.
+    Defensive: won't crash if hod model/table is missing fields (e.g. 'title').
+    Returns HttpResponse with PDF for download.
     """
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -291,7 +289,6 @@ def generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc=None):
     from django.apps import apps
     from django.utils import timezone
     import logging
-    from django.db import connection
 
     logger = logging.getLogger(__name__)
 
@@ -453,18 +450,17 @@ def generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc=None):
     except Exception as e:
         logger.exception("Error adding footer: %s", e)
 
-    # BUILD PDF and SAVE COPY to hod model if available
+    # BUILD PDF
     try:
         doc.build(elements)
         buffer.seek(0)
         pdf_bytes = buffer.getvalue()
     except Exception as e:
         logger.exception("Error building PDF: %s", e)
-        from django.contrib import messages
         messages.error(request, "Failed to generate PDF.")
         return redirect('facultymodule:faculty_dashboard')
 
-    # === DEFENSIVE SAVE: only include kwargs for columns that actually exist ===
+    # Defensive save to hod.FacultySyllabusPDF (won't write missing columns)
     try:
         FacultySyllabusPDF = None
         try:
@@ -473,7 +469,7 @@ def generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc=None):
             FacultySyllabusPDF = None
 
         if FacultySyllabusPDF:
-            # Determine branch/year/semester defensively
+            # figure out branch/year/semester
             branch_obj = None
             year_val = None
             sem_val = None
@@ -483,7 +479,6 @@ def generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc=None):
                 year_val = getattr(course_alloc, 'admission_year', None) or getattr(course_alloc, 'year', None)
                 sem_val = getattr(course_alloc, 'semester', None)
 
-            # fallback: try CourseAllocation table by course code (CourseAllocation imported at module level)
             try:
                 ca = CourseAllocation.objects.filter(course_code=getattr(course, 'course_code', None)).first()
                 if ca:
@@ -495,76 +490,64 @@ def generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc=None):
 
             branch_obj = branch_obj or getattr(course, 'branch', None) or None
 
+            # also accept year/semester from the form if provided (so HOD filters match)
+            try:
+                posted_year = request.POST.get('year') if request and hasattr(request, 'POST') else None
+                posted_sem = request.POST.get('semester') if request and hasattr(request, 'POST') else None
+                if posted_year:
+                    year_val = posted_year
+                if posted_sem:
+                    sem_val = posted_sem
+            except Exception:
+                pass
+
             filename = f"{getattr(course, 'course_code', 'syllabus')}_{timezone.now().strftime('%Y%m%d%H%M%S')}.pdf"
 
-            # Build candidate kwargs (model field names)
-            candidate_kwargs = {
+            # desired kwargs (we will filter to only actual model fields)
+            # Ensure approved=False and rejected=False by default so it appears in pending submissions
+            desired_kwargs = {
                 'branch': branch_obj,
                 'year': str(year_val) if year_val is not None else '',
                 'semester': str(sem_val) if sem_val is not None else (str(getattr(course, 'semester', '') or '')),
                 'created_by': (request.user if hasattr(request, 'user') else None),
-                # Non-essential / optional descriptive fields (only used if DB has them)
-                'title': f"{getattr(course, 'course_code', 'Syllabus')} syllabus",
-                'file_name': filename,  # if model includes such a column
+                'course': course,  # Ensure course is set so it appears in pending submissions
+                'title': getattr(course, 'course_title', '') or getattr(course, 'course_code', 'Syllabus'),
+                'approved': False,  # Explicitly set to False so it appears in pending
+                'rejected': False,  # Explicitly set to False for new submissions
+                # optional nice-to-have fields may be added here if model/table supports them
             }
 
-            # Map model field name -> DB column name
-            model_field_to_column = {f.name: f.column for f in FacultySyllabusPDF._meta.fields}
+            # get concrete field names of the hod model
+            model_field_names = {f.name for f in FacultySyllabusPDF._meta.get_fields() if getattr(f, 'concrete', False)}
 
-            # Attempt to introspect actual DB columns for the table
-            db_columns = []
-            try:
-                with connection.cursor() as cursor:
-                    db_columns = [c.name for c in connection.introspection.get_table_description(cursor, FacultySyllabusPDF._meta.db_table)]
-            except Exception:
-                db_columns = []
+            # only keep kwargs that the model actually defines
+            safe_kwargs = {k: v for k, v in desired_kwargs.items() if k in model_field_names}
 
-            # Keep only kwargs whose DB column exists
-            safe_kwargs = {}
-            for k, v in candidate_kwargs.items():
-                col = model_field_to_column.get(k)
-                if col and (not db_columns or col in db_columns):
-                    safe_kwargs[k] = v
-
-            # Create the row using safe kwargs only
+            # create the DB row
             pdf_row = FacultySyllabusPDF.objects.create(**safe_kwargs)
 
-            # Save PDF bytes to whichever FileField exists on the model
-            # common file field names tried:
+            # find a sensible filefield name and save the file bytes
             filefield_name = None
-            for candidate in ('pdf_file', 'file', 'document', 'file_field', 'pdf'):
-                if hasattr(pdf_row, candidate):
+            for candidate in ('pdf_file', 'file', 'pdf', 'document'):
+                if candidate in model_field_names:
                     filefield_name = candidate
                     break
+
             if filefield_name:
                 getattr(pdf_row, filefield_name).save(filename, ContentFile(pdf_bytes))
                 pdf_row.save()
-            else:
-                # fallback: if model has a FileField named otherwise, try to detect by field type
-                try:
-                    for f in FacultySyllabusPDF._meta.fields:
-                        if getattr(f, 'get_internal_type', lambda: '')() in ('FileField', 'ImageField'):
-                            fname = f.name
-                            getattr(pdf_row, fname).save(filename, ContentFile(pdf_bytes))
-                            pdf_row.save()
-                            filefield_name = fname
-                            break
-                except Exception:
-                    pass
 
-            logger.info("Saved faculty-generated PDF to hod.FacultySyllabusPDF (pk=%s) filefield=%s", getattr(pdf_row, 'pk', None), filefield_name)
+            logger.info("Saved faculty-generated PDF to FacultySyllabusPDF (pk=%s)", getattr(pdf_row, 'pk', 'n/a'))
     except Exception as e:
-        # Non-fatal: log and continue — do not break PDF download for faculty
+        # Non-fatal: log error but allow download to continue
         logger.exception("Failed to save faculty PDF (non-fatal): %s", e)
 
-    # Return response to faculty (download)
+    # Return PDF response for faculty to download
     try:
         response = HttpResponse(pdf_bytes, content_type='application/pdf')
         response['Content-Disposition'] = f'attachment; filename="{getattr(course, "course_code", "syllabus")}_syllabus.pdf"'
         return response
     except Exception as e:
         logger.exception("Failed to build HTTP response for PDF: %s", e)
-        from django.contrib import messages
         messages.error(request, "Failed to return PDF.")
         return redirect('facultymodule:faculty_dashboard')
-
