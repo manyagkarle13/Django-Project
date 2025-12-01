@@ -81,14 +81,21 @@ class Syllabus(models.Model):
     
     objectives = models.TextField(blank=True, null=True)
     outcomes = models.TextField(blank=True, null=True)
+    outcomes_po_mapping = models.TextField(blank=True, null=True)  # JSON: stores PO mappings for each outcome
+    outcomes_pso_mapping = models.TextField(blank=True, null=True)  # JSON: stores PSO mappings for each outcome
     modules = models.TextField(blank=True, null=True)
+    modules_topics = models.TextField(blank=True, null=True)  # JSON: stores topics/details for each module
+    modules_hours = models.TextField(blank=True, null=True)  # JSON: stores hours for each module
     cie_scheme = models.TextField(blank=True, null=True)
     see_scheme = models.TextField(blank=True, null=True)
     activities = models.TextField(blank=True, null=True)
     lab_work = models.TextField(blank=True, null=True)
     books = models.TextField(blank=True, null=True)
+    books_details = models.TextField(blank=True, null=True)  # JSON: stores authors, edition, publisher, year for each book
     reference_books = models.TextField(blank=True, null=True)
+    reference_books_details = models.TextField(blank=True, null=True)  # JSON: stores authors, edition, publisher, year for reference books
     ebooks = models.TextField(blank=True, null=True)
+    co_matrix = models.TextField(blank=True, null=True)  # JSON: 2D matrix of CO x PO/PSO values
     moocs = models.TextField(blank=True, null=True)
     cie_marks_data = models.TextField(blank=True, null=True)
     assessment_rubrics = models.TextField(blank=True, null=True)

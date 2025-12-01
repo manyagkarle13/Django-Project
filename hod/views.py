@@ -2532,12 +2532,9 @@ def generate_combined_syllabus(request, branch_pk):
         include_hod = request.POST.get('include_hod') == 'on' or request.POST.get('include_hod') == '1'
         scheme_id = request.POST.get('scheme_id', '').strip()
         
-        # Get selected submission IDs (in POST order)
+        # Get selected submission IDs (in POST order). It's OK if empty;
+        # dean-approved PDFs or an included HOD scheme may still be merged.
         submission_ids = request.POST.getlist('submissions')
-        
-        if not submission_ids:
-            messages.error(request, "Please select at least one submission.")
-            return redirect('hod:create_combined_syllabus', branch_pk=branch_pk)
         
         # Import PyPDF2 for PDF merging
         try:
@@ -2546,26 +2543,22 @@ def generate_combined_syllabus(request, branch_pk):
             messages.error(request, "PyPDF2 library required for PDF merging. Install with: pip install PyPDF2")
             return redirect('hod:create_combined_syllabus', branch_pk=branch_pk)
         
-        # Validate and get approved submissions in POST order
+        # Validate and get approved submissions in POST order (may end up empty)
         FacultySyllabusPDF = apps.get_model('hod', 'FacultySyllabusPDF')
         valid_submissions = []
         for sub_id in submission_ids:
             try:
-                submission = FacultySyllabusPDF.objects.get(
-                    pk=sub_id,
-                    branch=branch,
-                    approved=True,
-                    year=str(year) if year else None,
-                    semester=str(semester) if semester else None
-                )
+                # Build filter kwargs to avoid passing None values
+                fk = {'pk': sub_id, 'branch': branch, 'approved': True}
+                if year:
+                    fk['year'] = str(year)
+                if semester:
+                    fk['semester'] = str(semester)
+                submission = FacultySyllabusPDF.objects.get(**fk)
                 valid_submissions.append(submission)
             except (FacultySyllabusPDF.DoesNotExist, ValueError):
                 messages.warning(request, f"Invalid submission ID: {sub_id}")
                 continue
-        
-        if not valid_submissions:
-            messages.error(request, "No valid submissions selected.")
-            return redirect('hod:create_combined_syllabus', branch_pk=branch_pk)
         
         # Merge PDFs using PyPDF2.PdfMerger (preserves POST order)
         try:
@@ -2620,6 +2613,24 @@ def generate_combined_syllabus(request, branch_pk):
                         latest_dean_per_course[cid] = sub
 
                 # append dean PDFs in deterministic order (course code)
+                # First, include any syllabus_pdf attached directly to the CollegeLevelCourse
+                # (this represents a dean-provided syllabus file stored on the course itself).
+                # Iterate dean courses in course_code order for determinism.
+                for course in dean_courses_qs.order_by('course_code'):
+                    try:
+                        if getattr(course, 'syllabus_pdf', None) and hasattr(course.syllabus_pdf, 'path') and os.path.exists(course.syllabus_pdf.path):
+                            path = course.syllabus_pdf.path
+                            if path not in appended_paths:
+                                try:
+                                    merger.append(path)
+                                    appended_paths.add(path)
+                                except Exception as e:
+                                    logger.exception("Error adding course syllabus_pdf for %s: %s", course.course_code, e)
+                                    messages.warning(request, f"Could not add course syllabus for {course.course_code}: {e}")
+                    except Exception:
+                        # Defensive: skip problematic course entries
+                        continue
+
                 for cid, sub in sorted(latest_dean_per_course.items(), key=lambda x: (getattr(x[1].course, 'course_code', '') if x[1].course else '')):
                     if sub.pdf_file and os.path.exists(sub.pdf_file.path):
                         path = sub.pdf_file.path
@@ -2648,11 +2659,17 @@ def generate_combined_syllabus(request, branch_pk):
                         messages.warning(request, f"Could not add one submission PDF: {e}")
             
             # Create output buffer
+            # Ensure we actually appended something
+            if not appended_paths:
+                messages.error(request, "No PDFs were available to merge for the selected filters/selections.")
+                return redirect('hod:create_combined_syllabus', branch_pk=branch_pk)
+
+            # Create output buffer
             output_buffer = BytesIO()
             merger.write(output_buffer)
             merger.close()
             output_buffer.seek(0)
-            
+
             # Return merged PDF as FileResponse
             response = FileResponse(
                 output_buffer,

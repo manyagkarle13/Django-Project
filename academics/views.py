@@ -84,63 +84,85 @@ def _set_deleted_flag(obj, deleted=True):
     except Exception:
         logger.exception("Failed to save deletion flag on %r", obj)
 
-
-# -------------------------------------------------------------------------
-# PDF generators (reportlab) -- unchanged except single-copy
-# -------------------------------------------------------------------------
 def generate_syllabus_pdf_buffer(syllabus: Syllabus) -> io.BytesIO:
-    """Generate PDF syllabus in exact MCE format matching the template."""
+    """Generate PDF syllabus in exact MCE format matching the template.
+    All text is forced to Times-Roman at size 12 (no other visual changes)."""
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import inch
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak, Image
     from reportlab.lib import colors
-    
+    import json
+
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=0.4*inch, bottomMargin=0.4*inch, leftMargin=0.4*inch, rightMargin=0.4*inch)
-    
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        topMargin=0.4*inch,
+        bottomMargin=0.4*inch,
+        leftMargin=0.4*inch,
+        rightMargin=0.4*inch
+    )
+
     styles = getSampleStyleSheet()
-    
-    # Custom styles
+
+    # --- Force base styles to Times-Roman, size 12, consistent leading ---
+    for name, s in styles.byName.items():
+        try:
+            s.fontName = 'Times-Roman'
+            s.fontSize = 12
+            # ensure enough leading for wrap
+            s.leading = 14
+        except Exception:
+            pass
+
+    # All explicitly created styles use Times-Roman and size 12
     title_style = ParagraphStyle(
         'Title',
         parent=styles['Heading1'],
-        fontSize=11,
+        fontName='Times-Roman',
+        fontSize=12,
+        leading=14,
         textColor=colors.black,
         alignment=1,  # center
         spaceAfter=2,
     )
-    
+
     college_style = ParagraphStyle(
         'College',
         parent=styles['Normal'],
-        fontSize=10,
+        fontName='Times-Roman',
+        fontSize=12,
+        leading=14,
         textColor=colors.black,
         alignment=1,
         spaceAfter=1,
     )
-    
+
     section_heading_style = ParagraphStyle(
         'SectionHeading',
         parent=styles['Heading3'],
-        fontSize=11,
+        fontName='Times-Roman',
+        fontSize=12,
+        leading=14,
         textColor=colors.black,
         spaceAfter=6,
         spaceBefore=6,
     )
-    
+
     normal_style = ParagraphStyle(
         'Normal2',
         parent=styles['Normal'],
-        fontSize=10,
-        leading=12,
+        fontName='Times-Roman',
+        fontSize=12,
+        leading=14,
     )
-    
+
     elements = []
     course = syllabus.course
     branch_name = getattr(course, 'branch', None)
     branch_name = branch_name.name.upper() if branch_name else "ENGINEERING"
-    
+
     # ===== LOGO =====
     try:
         logo_path = os.path.join(settings.BASE_DIR, 'users/static/images/malnad_college_of_engineering_logo.jpeg')
@@ -151,13 +173,13 @@ def generate_syllabus_pdf_buffer(syllabus: Syllabus) -> io.BytesIO:
             elements.append(Spacer(1, 0.05*inch))
     except Exception as e:
         logger.debug("Logo not found: %s", e)
-    
+
     # ===== COLLEGE HEADER (Centered) =====
     elements.append(Paragraph("MALNAD COLLEGE OF ENGINEERING, HASSAN", title_style))
     elements.append(Paragraph("(An Autonomous Institution Affiliated to VTU, Belgaum)", college_style))
     elements.append(Paragraph(f"DEPARTMENT OF {branch_name}", college_style))
     elements.append(Spacer(1, 0.1*inch))
-    
+
     # ===== COURSE HEADER TABLE =====
     header_table_data = [
         ['Course Title', course.course_title, '', ''],
@@ -165,7 +187,7 @@ def generate_syllabus_pdf_buffer(syllabus: Syllabus) -> io.BytesIO:
         ['Exam', '3 Hrs.', 'Hours/Week', str((course.teaching_hours_L or 0) + (course.teaching_hours_T or 0) + (course.teaching_hours_P or 0))],
         ['SEE', str(syllabus.see_scheme or course.see_marks or '') + ' Marks', 'Total Hours', f"{(course.teaching_hours_L or 0)*9}L+{(course.teaching_hours_P or 0)*14}P"],
     ]
-    
+
     header_table = Table(header_table_data, colWidths=[1.2*inch, 2.2*inch, 1.2*inch, 2.2*inch])
     header_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f5f5f5')),
@@ -173,18 +195,21 @@ def generate_syllabus_pdf_buffer(syllabus: Syllabus) -> io.BytesIO:
         ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('FONTNAME', (0, 0), (-1, 1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('FONTNAME', (0, 0), (-1, -1), 'Times-Roman'),
+        ('FONTSIZE', (0, 0), (-1, -1), 12),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
         ('TOPPADDING', (0, 0), (-1, -1), 5),
         ('LEFTPADDING', (0, 0), (-1, -1), 5),
         ('RIGHTPADDING', (0, 0), (-1, -1), 5),
         ('BORDER', (0, 0), (-1, -1), 0.5, colors.black),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+        # Remove internal grid lines from first row (Course Title row)
+        ('GRID', (1, 0), (2, 0), 0, colors.white),
+        ('GRID', (2, 0), (3, 0), 0, colors.white),
     ]))
     elements.append(header_table)
     elements.append(Spacer(1, 0.15*inch))
-    
+
     # ===== COURSE OBJECTIVES =====
     if syllabus.objectives:
         elements.append(Paragraph("Course Objectives", section_heading_style))
@@ -193,55 +218,96 @@ def generate_syllabus_pdf_buffer(syllabus: Syllabus) -> io.BytesIO:
             if line.strip():
                 elements.append(Paragraph(f"• {line.strip()}", normal_style))
         elements.append(Spacer(1, 0.1*inch))
-    
+
     # ===== COURSE OUTCOMES =====
     if syllabus.outcomes:
-        elements.append(Paragraph("Course Outcomes", section_heading_style))
-        outcomes_data = [['#', 'Course Outcomes', 'Mapping to POs', 'Mapping to PSOs']]
+        elements.append(Paragraph('<b>Course outcomes:</b> At the end of course, student will be able to:', normal_style))
+        elements.append(Spacer(1, 0.05*inch))
+
+        outcomes_data = [
+            ['#', 'Course Outcomes', Paragraph("Mapping to<br/>PO's", normal_style), Paragraph("Mapping<br/>to PSO's", normal_style)]
+        ]
         outcomes_lines = str(syllabus.outcomes).split('\n') if syllabus.outcomes else []
+
+        try:
+            po_mappings = json.loads(syllabus.outcomes_po_mapping) if syllabus.outcomes_po_mapping else []
+        except:
+            po_mappings = []
+        try:
+            pso_mappings = json.loads(syllabus.outcomes_pso_mapping) if syllabus.outcomes_pso_mapping else []
+        except:
+            pso_mappings = []
+
         for i, outcome in enumerate(outcomes_lines, 1):
             if outcome.strip():
-                outcomes_data.append([str(i) + '.', outcome.strip(), '', ''])
-        
-        outcomes_table = Table(outcomes_data, colWidths=[0.5*inch, 3.8*inch, 1.1*inch, 1.1*inch])
-        outcomes_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#c0c0c0')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-            ('ALIGN', (0, 0), (0, -1), 'CENTER'),
-            ('ALIGN', (1, 0), (-1, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 9),
-            ('FONTSIZE', (0, 1), (-1, -1), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-            ('TOPPADDING', (0, 0), (-1, -1), 5),
-            ('LEFTPADDING', (0, 0), (-1, -1), 4),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
-            ('BORDER', (0, 0), (-1, -1), 0.5, colors.black),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-        ]))
-        elements.append(outcomes_table)
-        elements.append(Spacer(1, 0.1*inch))
-    
+                po_val = po_mappings[i-1] if i-1 < len(po_mappings) else ''
+                pso_val = pso_mappings[i-1] if i-1 < len(pso_mappings) else ''
+                outcomes_data.append([
+                    str(i) + '.',
+                    Paragraph(outcome.strip(), normal_style),
+                    po_val,
+                    pso_val
+                ])
+
+        if len(outcomes_data) > 1:
+            outcomes_table = Table(outcomes_data, colWidths=[0.4*inch, 3.8*inch, 0.95*inch, 0.95*inch])
+            outcomes_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#e8e8e8')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+                ('ALIGN', (0, 0), (0, -1), 'CENTER'),
+                ('ALIGN', (1, 0), (1, -1), 'LEFT'),
+                ('ALIGN', (2, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('FONTNAME', (0, 0), (-1, -1), 'Times-Roman'),
+                ('FONTSIZE', (0, 0), (-1, -1), 12),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ('LEFTPADDING', (0, 0), (-1, -1), 3),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+                ('BORDER', (0, 0), (-1, -1), 1, colors.black),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.white]),
+            ]))
+            elements.append(outcomes_table)
+            elements.append(Spacer(1, 0.12*inch))
+
     # ===== MODULE-WISE BREAKDOWN =====
     if syllabus.modules:
         elements.append(Paragraph("Module-wise Breakdown", section_heading_style))
         modules_data = [['Module', 'Details', 'Hrs']]
         modules_lines = str(syllabus.modules).split('\n') if syllabus.modules else []
+
+        try:
+            modules_topics = json.loads(syllabus.modules_topics) if syllabus.modules_topics else []
+        except:
+            modules_topics = []
+
+        try:
+            modules_hours = json.loads(syllabus.modules_hours) if syllabus.modules_hours else []
+        except:
+            modules_hours = []
+
         for i, module in enumerate(modules_lines, 1):
             if module.strip():
-                modules_data.append([str(i), module.strip()[:60], ''])
-        
+                topics_val = modules_topics[i-1] if i-1 < len(modules_topics) else ''
+                if topics_val:
+                    details = f"{module.strip()}\n\n{topics_val}"
+                else:
+                    details = module.strip()
+
+                hours_val = modules_hours[i-1] if i-1 < len(modules_hours) else ''
+                modules_data.append([str(i), details, hours_val])
+
         modules_table = Table(modules_data, colWidths=[0.6*inch, 5.2*inch, 0.6*inch])
         modules_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#c0c0c0')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
             ('ALIGN', (0, 0), (0, -1), 'CENTER'),
-            ('ALIGN', (1, 0), (-1, -1), 'LEFT'),
+            ('ALIGN', (1, 0), (1, -1), 'LEFT'),
+            ('ALIGN', (2, 0), (2, -1), 'CENTER'),
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 9),
-            ('FONTSIZE', (0, 1), (-1, -1), 8),
+            ('FONTNAME', (0, 0), (-1, -1), 'Times-Roman'),
+            ('FONTSIZE', (0, 0), (-1, -1), 12),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
             ('TOPPADDING', (0, 0), (-1, -1), 4),
             ('LEFTPADDING', (0, 0), (-1, -1), 4),
@@ -251,25 +317,33 @@ def generate_syllabus_pdf_buffer(syllabus: Syllabus) -> io.BytesIO:
         ]))
         elements.append(modules_table)
         elements.append(Spacer(1, 0.1*inch))
-    
+
     # ===== PRESCRIBED TEST BOOKS =====
     if syllabus.books:
         elements.append(Paragraph("Prescribed Test Books", section_heading_style))
         books_data = [['Sl No', 'Book Title', 'Authors', 'Edition', 'Publisher', 'Year']]
         books_lines = str(syllabus.books).split('\n') if syllabus.books else []
+        try:
+            books_details = json.loads(syllabus.books_details) if syllabus.books_details else []
+        except:
+            books_details = []
         for i, book in enumerate(books_lines, 1):
             if book.strip():
-                books_data.append([str(i), book.strip(), '', '', '', ''])
-        
+                detail = books_details[i-1] if i-1 < len(books_details) else {}
+                authors = detail.get('authors', '') if isinstance(detail, dict) else ''
+                edition = detail.get('edition', '') if isinstance(detail, dict) else ''
+                publisher = detail.get('publisher', '') if isinstance(detail, dict) else ''
+                year = detail.get('year', '') if isinstance(detail, dict) else ''
+                books_data.append([str(i), book.strip(), authors, edition, publisher, year])
+
         books_table = Table(books_data, colWidths=[0.5*inch, 2*inch, 1.5*inch, 0.8*inch, 1.5*inch, 0.5*inch])
         books_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#c0c0c0')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 8),
-            ('FONTSIZE', (0, 1), (-1, -1), 7),
+            ('FONTNAME', (0, 0), (-1, -1), 'Times-Roman'),
+            ('FONTSIZE', (0, 0), (-1, -1), 12),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
             ('TOPPADDING', (0, 0), (-1, -1), 3),
             ('LEFTPADDING', (0, 0), (-1, -1), 3),
@@ -279,25 +353,33 @@ def generate_syllabus_pdf_buffer(syllabus: Syllabus) -> io.BytesIO:
         ]))
         elements.append(books_table)
         elements.append(Spacer(1, 0.1*inch))
-    
+
     # ===== REFERENCE BOOKS =====
     if hasattr(syllabus, 'reference_books') and syllabus.reference_books:
         elements.append(Paragraph("Reference Books", section_heading_style))
         ref_books_data = [['Sl No', 'Book Title', 'Authors', 'Edition', 'Publisher', 'Year']]
         ref_books_lines = str(syllabus.reference_books).split('\n') if syllabus.reference_books else []
+        try:
+            ref_books_details = json.loads(syllabus.reference_books_details) if syllabus.reference_books_details else []
+        except:
+            ref_books_details = []
         for i, book in enumerate(ref_books_lines, 1):
             if book.strip():
-                ref_books_data.append([str(i), book.strip(), '', '', '', ''])
-        
+                detail = ref_books_details[i-1] if i-1 < len(ref_books_details) else {}
+                authors = detail.get('authors', '') if isinstance(detail, dict) else ''
+                edition = detail.get('edition', '') if isinstance(detail, dict) else ''
+                publisher = detail.get('publisher', '') if isinstance(detail, dict) else ''
+                year = detail.get('year', '') if isinstance(detail, dict) else ''
+                ref_books_data.append([str(i), book.strip(), authors, edition, publisher, year])
+
         ref_books_table = Table(ref_books_data, colWidths=[0.5*inch, 2*inch, 1.5*inch, 0.8*inch, 1.5*inch, 0.5*inch])
         ref_books_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#c0c0c0')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 8),
-            ('FONTSIZE', (0, 1), (-1, -1), 7),
+            ('FONTNAME', (0, 0), (-1, -1), 'Times-Roman'),
+            ('FONTSIZE', (0, 0), (-1, -1), 12),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
             ('TOPPADDING', (0, 0), (-1, -1), 3),
             ('LEFTPADDING', (0, 0), (-1, -1), 3),
@@ -307,38 +389,37 @@ def generate_syllabus_pdf_buffer(syllabus: Syllabus) -> io.BytesIO:
         ]))
         elements.append(ref_books_table)
         elements.append(Spacer(1, 0.1*inch))
-    
+
     # ===== E-BOOKS & MOOCS =====
     if syllabus.ebooks or syllabus.moocs:
         elements.append(Paragraph("E-Resources", section_heading_style))
-        
+
         if syllabus.ebooks:
             elements.append(Paragraph("<b>E-Books:</b>", normal_style))
             ebooks_list = str(syllabus.ebooks).split('\n') if syllabus.ebooks else []
             for ebook in ebooks_list:
                 if ebook.strip():
                     elements.append(Paragraph(f"1. {ebook.strip()}", normal_style))
-        
+
         if syllabus.moocs:
             elements.append(Paragraph("<b>MOOC Courses:</b>", normal_style))
             moocs_list = str(syllabus.moocs).split('\n') if syllabus.moocs else []
             for i, mooc in enumerate(moocs_list, 1):
                 if mooc.strip():
                     elements.append(Paragraph(f"{i}. {mooc.strip()}", normal_style))
-        
+
         elements.append(Spacer(1, 0.1*inch))
-    
+
     # ===== PROPOSED ASSESSMENT PLAN =====
     if syllabus.cie_marks_data or syllabus.cie_scheme or syllabus.see_scheme:
         elements.append(Paragraph("Proposed Assessment Plan (for 50 marks of CIE):", section_heading_style))
         assessment_data = [['Tool', 'Remarks', 'Marks']]
-        
+
         try:
             cie_val = int(syllabus.cie_scheme) if syllabus.cie_scheme else 50
         except:
             cie_val = 50
-        
-        # Parse and add assessment data from form if available
+
         if syllabus.cie_marks_data:
             try:
                 import json
@@ -359,16 +440,14 @@ def generate_syllabus_pdf_buffer(syllabus: Syllabus) -> io.BytesIO:
                 else:
                     assessment_data.append(['', 'Total', str(cie_val)])
             except:
-                # Fallback to default data if parsing fails
                 assessment_data.append(['Internals', 'Three tests conducted for 20 marks each and reduced to 10 marks', '30'])
                 assessment_data.append(['AAT', 'Lab Evaluation', '20'])
                 assessment_data.append(['', 'Total', str(cie_val)])
         else:
-            # Default rows if no data
             assessment_data.append(['Internals', 'Three tests conducted for 20 marks each and reduced to 10 marks', '30'])
             assessment_data.append(['AAT', 'Lab Evaluation', '20'])
             assessment_data.append(['', 'Total', str(cie_val)])
-        
+
         assessment_table = Table(assessment_data, colWidths=[1.5*inch, 4.5*inch, 1*inch])
         assessment_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#c0c0c0')),
@@ -376,9 +455,8 @@ def generate_syllabus_pdf_buffer(syllabus: Syllabus) -> io.BytesIO:
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('ALIGN', (2, 0), (2, -1), 'CENTER'),
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 9),
-            ('FONTSIZE', (0, 1), (-1, -1), 9),
+            ('FONTNAME', (0, 0), (-1, -1), 'Times-Roman'),
+            ('FONTSIZE', (0, 0), (-1, -1), 12),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
             ('TOPPADDING', (0, 0), (-1, -1), 4),
             ('LEFTPADDING', (0, 0), (-1, -1), 4),
@@ -388,7 +466,7 @@ def generate_syllabus_pdf_buffer(syllabus: Syllabus) -> io.BytesIO:
         ]))
         elements.append(assessment_table)
         elements.append(Spacer(1, 0.1*inch))
-    
+
     # ===== LABORATORY PLAN =====
     if syllabus.lab_work and (course.teaching_hours_P or 0) > 0:
         elements.append(Paragraph("Laboratory Plan", section_heading_style))
@@ -397,7 +475,7 @@ def generate_syllabus_pdf_buffer(syllabus: Syllabus) -> io.BytesIO:
         for i, lab in enumerate(lab_lines, 1):
             if lab.strip():
                 lab_data.append([str(i), lab.strip()])
-        
+
         lab_table = Table(lab_data, colWidths=[0.7*inch, 5.9*inch])
         lab_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#c0c0c0')),
@@ -405,9 +483,8 @@ def generate_syllabus_pdf_buffer(syllabus: Syllabus) -> io.BytesIO:
             ('ALIGN', (0, 0), (0, -1), 'CENTER'),
             ('ALIGN', (1, 0), (1, -1), 'LEFT'),
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 9),
-            ('FONTSIZE', (0, 1), (-1, -1), 8),
+            ('FONTNAME', (0, 0), (-1, -1), 'Times-Roman'),
+            ('FONTSIZE', (0, 0), (-1, -1), 12),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
             ('TOPPADDING', (0, 0), (-1, -1), 4),
             ('LEFTPADDING', (0, 0), (-1, -1), 4),
@@ -417,10 +494,10 @@ def generate_syllabus_pdf_buffer(syllabus: Syllabus) -> io.BytesIO:
         ]))
         elements.append(lab_table)
         elements.append(Spacer(1, 0.1*inch))
-    
+
     # ===== PAGE BREAK BEFORE ARTICULATION MATRIX =====
     elements.append(PageBreak())
-    
+
     # ===== LOGO REPEAT =====
     try:
         logo_path = os.path.join(settings.BASE_DIR, 'users/static/images/malnad_college_of_engineering_logo.jpeg')
@@ -431,35 +508,43 @@ def generate_syllabus_pdf_buffer(syllabus: Syllabus) -> io.BytesIO:
             elements.append(Spacer(1, 0.05*inch))
     except Exception as e:
         logger.debug("Logo not found: %s", e)
-    
+
     # ===== COLLEGE HEADER REPEAT (Centered) =====
     elements.append(Paragraph("MALNAD COLLEGE OF ENGINEERING, HASSAN", title_style))
     elements.append(Paragraph("(An Autonomous Institution Affiliated to VTU, Belgaum)", college_style))
     elements.append(Paragraph(f"DEPARTMENT OF {branch_name}", college_style))
     elements.append(Spacer(1, 0.1*inch))
-    
+
     # ===== COURSE ARTICULATION MATRIX =====
     elements.append(Paragraph("Course Articulation Matrix", section_heading_style))
-    
-    # Create CO × PO/PSO matrix
+
     pos = ['PO1', 'PO2', 'PO3', 'PO4', 'PO5', 'PO6', 'PO7', 'PO8', 'PO9', 'PO10', 'PO11', 'PO12', 'PSO1', 'PSO2']
     outcomes_count = len([x for x in str(syllabus.outcomes).split('\n') if x.strip()]) if syllabus.outcomes else 4
-    
-    matrix_data = [['Course Outcomes'] + pos]
+
+    matrix_data = [["CO's"] + pos]
+    try:
+        co_matrix = json.loads(syllabus.co_matrix) if syllabus.co_matrix else []
+    except:
+        co_matrix = []
+
     for i in range(1, outcomes_count + 1):
-        row = [f'CO{i}'] + ['' for _ in pos]
+        row_vals = ['' for _ in pos]
+        if i-1 < len(co_matrix):
+            saved_row = co_matrix[i-1] or []
+            for j in range(min(len(saved_row), len(pos))):
+                row_vals[j] = saved_row[j] or ''
+        row = [f'CO{i}'] + row_vals
         matrix_data.append(row)
-    
-    col_width = 6.4 / len(pos)  # Distribute width among POs/PSOs
+
+    col_width = 6.4 / len(pos)
     matrix_table = Table(matrix_data, colWidths=[0.7*inch] + [col_width*inch] * len(pos))
     matrix_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#c0c0c0')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 8),
-        ('FONTSIZE', (0, 1), (-1, -1), 8),
+        ('FONTNAME', (0, 0), (-1, -1), 'Times-Roman'),
+        ('FONTSIZE', (0, 0), (-1, -1), 12),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
         ('TOPPADDING', (0, 0), (-1, -1), 3),
         ('LEFTPADDING', (0, 0), (-1, -1), 2),
@@ -468,7 +553,7 @@ def generate_syllabus_pdf_buffer(syllabus: Syllabus) -> io.BytesIO:
         ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
     ]))
     elements.append(matrix_table)
-    
+
     # Build PDF
     try:
         doc.build(elements)
@@ -966,15 +1051,136 @@ def add_syllabus(request, course_id):
 
         # store big text fields (these names should match your form fields)
         syllabus.objectives = request.POST.get("objectives", "") or ""
-        syllabus.outcomes = request.POST.get("outcomes", "") or ""
-        syllabus.modules = request.POST.get("modules", "") or ""
+        
+        # Collect individual CO fields (co_1, co_2, co_3, etc.) and join them with newlines
+        outcomes_list = []
+        idx = 1
+        while f"co_{idx}" in request.POST:
+            co_text = request.POST.get(f"co_{idx}", "").strip()
+            if co_text:
+                outcomes_list.append(co_text)
+            idx += 1
+        syllabus.outcomes = "\n".join(outcomes_list) if outcomes_list else ""
+        
+        # Collect PO mappings (co_map_po_1, co_map_po_2, etc.) and store as JSON
+        po_mappings = []
+        idx = 1
+        while f"co_map_po_{idx}" in request.POST:
+            po_text = request.POST.get(f"co_map_po_{idx}", "").strip()
+            po_mappings.append(po_text)
+            idx += 1
+        syllabus.outcomes_po_mapping = json.dumps(po_mappings) if po_mappings else ""
+        
+        # Collect PSO mappings (co_map_pso_1, co_map_pso_2, etc.) and store as JSON
+        pso_mappings = []
+        idx = 1
+        while f"co_map_pso_{idx}" in request.POST:
+            pso_text = request.POST.get(f"co_map_pso_{idx}", "").strip()
+            pso_mappings.append(pso_text)
+            idx += 1
+        syllabus.outcomes_pso_mapping = json.dumps(pso_mappings) if pso_mappings else ""
+        
+        # Collect modules (module_title_#, module_topics_#, module_hours_#) and join with newlines
+        modules_list = []
+        modules_topics_list = []
+        modules_hours_list = []
+        idx = 1
+        while f"module_title_{idx}" in request.POST:
+            title = request.POST.get(f"module_title_{idx}", "").strip()
+            topics = request.POST.get(f"module_topics_{idx}", "").strip()
+            hours = request.POST.get(f"module_hours_{idx}", "").strip()
+            if title:
+                modules_list.append(title)
+                modules_topics_list.append(topics)
+                modules_hours_list.append(hours)
+            idx += 1
+        syllabus.modules = "\n".join(modules_list) if modules_list else ""
+        syllabus.modules_topics = json.dumps(modules_topics_list) if modules_topics_list else ""
+        syllabus.modules_hours = json.dumps(modules_hours_list) if modules_hours_list else ""
         syllabus.cie_scheme = request.POST.get("cie", "") or request.POST.get("cie_scheme", "") or ""
         syllabus.see_scheme = request.POST.get("see", "") or request.POST.get("see_scheme", "") or ""
         syllabus.lab_work = request.POST.get("lab_work", "") or ""
-        syllabus.books = request.POST.get("books", "") or ""
-        syllabus.reference_books = request.POST.get("reference_books", "") or ""
-        syllabus.ebooks = request.POST.get("ebooks", "") or ""
-        syllabus.moocs = request.POST.get("moocs", "") or ""
+        
+        # Collect prescribed books (title, authors, edition, publisher, year)
+        books_list = []
+        books_details = []
+        idx = 1
+        while f"prescribed_title_{idx}" in request.POST:
+            title = request.POST.get(f"prescribed_title_{idx}", "").strip()
+            authors = request.POST.get(f"prescribed_authors_{idx}", "").strip()
+            edition = request.POST.get(f"prescribed_edition_{idx}", "").strip()
+            publisher = request.POST.get(f"prescribed_publisher_{idx}", "").strip()
+            year = request.POST.get(f"prescribed_year_{idx}", "").strip()
+            if title:
+                books_list.append(title)
+                books_details.append({
+                    'authors': authors,
+                    'edition': edition,
+                    'publisher': publisher,
+                    'year': year,
+                })
+            idx += 1
+        syllabus.books = "\n".join(books_list) if books_list else ""
+        syllabus.books_details = json.dumps(books_details) if books_details else ""
+
+        # Collect reference books (title, authors, edition, publisher, year)
+        ref_books_list = []
+        ref_books_details = []
+        idx = 1
+        while f"reference_title_{idx}" in request.POST:
+            title = request.POST.get(f"reference_title_{idx}", "").strip()
+            authors = request.POST.get(f"reference_authors_{idx}", "").strip()
+            edition = request.POST.get(f"reference_edition_{idx}", "").strip()
+            publisher = request.POST.get(f"reference_publisher_{idx}", "").strip()
+            year = request.POST.get(f"reference_year_{idx}", "").strip()
+            if title:
+                ref_books_list.append(title)
+                ref_books_details.append({
+                    'authors': authors,
+                    'edition': edition,
+                    'publisher': publisher,
+                    'year': year,
+                })
+            idx += 1
+        syllabus.reference_books = "\n".join(ref_books_list) if ref_books_list else ""
+        syllabus.reference_books_details = json.dumps(ref_books_details) if ref_books_details else ""
+        
+        # Collect e-books (ebook_#) and join with newlines
+        ebooks_list = []
+        idx = 1
+        while f"ebook_{idx}" in request.POST:
+            ebook = request.POST.get(f"ebook_{idx}", "").strip()
+            if ebook:
+                ebooks_list.append(ebook)
+            idx += 1
+        syllabus.ebooks = "\n".join(ebooks_list) if ebooks_list else ""
+        
+        # Collect MOOCs (mooc_#) and join with newlines
+        moocs_list = []
+        idx = 1
+        while f"mooc_{idx}" in request.POST:
+            mooc = request.POST.get(f"mooc_{idx}", "").strip()
+            if mooc:
+                moocs_list.append(mooc)
+            idx += 1
+        syllabus.moocs = "\n".join(moocs_list) if moocs_list else ""
+
+        # Collect CO x PO/PSO matrix values (matrix_{co}_{po}) and store as JSON 2D array
+        outcomes_lines = str(syllabus.outcomes).split('\n') if syllabus.outcomes else []
+        outcomes_count = len([x for x in outcomes_lines if x.strip()])
+        pos_len = 14  # PO1..PO12 + PSO1..PSO2
+        matrix = []
+        for co_idx in range(1, max(outcomes_count, 1) + 1):
+            row = []
+            for po_idx in range(1, pos_len + 1):
+                val = request.POST.get(f"matrix_{co_idx}_{po_idx}", "").strip()
+                row.append(val)
+            matrix.append(row)
+        # Only save if any entry provided
+        if any(any(cell for cell in row) for row in matrix):
+            syllabus.co_matrix = json.dumps(matrix)
+        else:
+            syllabus.co_matrix = ""
 
         # Collect assessment data from form (Tool, Remarks, Marks)
         assessment_data = []
