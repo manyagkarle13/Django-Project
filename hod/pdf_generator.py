@@ -1,3 +1,10 @@
+"""PDF generation utilities used by HOD and other apps.
+
+This module provides helpers to generate PDFs and Excel exports for
+HOD course allocations, starting pages, and scheme documents using
+ReportLab and openpyxl where available.
+"""
+
 import io
 import os
 from pathlib import Path
@@ -380,3 +387,4 @@ def generate_scheme_pdf(courses, branch, year, semester, filename='scheme.pdf'):
 
     doc.build(elements)
     return pdf_path
+

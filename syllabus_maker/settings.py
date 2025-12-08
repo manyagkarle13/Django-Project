@@ -132,7 +132,7 @@ STATIC_URL = '/static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 AUTH_USER_MODEL = "users.CustomUser"
-LOGIN_URL = "login"
+LOGIN_URL = "users:login"
 LOGIN_REDIRECT_URL = "home"
 
 import os
@@ -160,9 +160,10 @@ MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 
 AUTHENTICATION_BACKENDS = [
+    'users.backends.EmailOrUsernameModelBackend',  # allow username or email login
     'django.contrib.auth.backends.ModelBackend',  # Default
-    # Add any custom backends here
+    # Add any other custom backends here
 ]
 AUTH_USER_MODEL = 'users.CustomUser'   # your custom user model
-LOGIN_URL = 'login'                    # used by @login_required
-LOGIN_REDIRECT_URL = 'home'          # after login redirect
+LOGIN_URL = 'users:login'              # used by @login_required
+LOGIN_REDIRECT_URL = 'home'            # after login redirect

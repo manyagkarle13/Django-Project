@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container mt-4">
+  <h2>{{ course.course_code }} - {{ course.course_title }}</h2>
+  <p><strong>Category:</strong> {{ course.course_category }} &nbsp; <strong>L-T-P:</strong> {{ course.teaching_hours_L }}-{{ course.teaching_hours_T }}-{{ course.teaching_hours_P }} &nbsp; <strong>Credits:</strong> {{ course.credits }}</p>
+
+  <hr/>
+  <h4>Objectives</h4>
+  <pre style="white-space:pre-wrap;">{{ syllabus.objectives }}</pre>
+
+  <h4>Course Outcomes</h4>
+  <pre style="white-space:pre-wrap;">{{ syllabus.outcomes }}</pre>
+
+  <h4>Modules</h4>
+  {% if module_rows %}
+    <ol>
+    {% for m in module_rows %}
+      <li>
+        <strong>{{ m.title }}</strong>
+        {% if m.topics %}
+          <div>{{ m.topics }}</div>
+        {% endif %}
+        {% if m.hours %}<div><em>Hours:</em> {{ m.hours }}</div>{% endif %}
+      </li>
+    {% endfor %}
+    </ol>
+  {% else %}
+    <p>No modules provided.</p>
+  {% endif %}
+
+  <h4>Prescribed Books</h4>
+  {% if prescribed_books %}
+    <ul>
+      {% for b in prescribed_books %}
+        <li>{{ b.title }} {% if b.authors %} — {{ b.authors }}{% endif %}{% if b.edition %} ({{ b.edition }}){% endif %}</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>No prescribed books listed.</p>
+  {% endif %}
+
+  <h4>Reference Books</h4>
+  {% if reference_books %}
+    <ul>
+      {% for b in reference_books %}
+        <li>{{ b.title }} {% if b.authors %} — {{ b.authors }}{% endif %}</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>No reference books listed.</p>
+  {% endif %}
+
+  <h4>eBooks / MOOCs</h4>
+  {% if ebooks or moocs %}
+    {% if ebooks %}
+      <p><strong>eBooks:</strong></p>
+      <ul>{% for e in ebooks %}<li>{{ e }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if moocs %}
+      <p><strong>MOOCs:</strong></p>
+      <ul>{% for m in moocs %}<li>{{ m }}</li>{% endfor %}</ul>
+    {% endif %}
+  {% else %}
+    <p>No eBooks or MOOCs listed.</p>
+  {% endif %}
+
+  <div class="mt-4">
+    <a class="btn btn-secondary" href="{% url 'facultymodule:add_syllabus' course.pk %}">Edit Syllabus</a>
+    <a class="btn btn-primary" href="{% url 'facultymodule:faculty_dashboard' %}">Back to Dashboard</a>
+  </div>
+</div>
+{% endblock %}

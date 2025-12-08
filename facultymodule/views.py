@@ -4,13 +4,14 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.apps import apps
 from django.contrib import messages
 from django.urls import reverse, NoReverseMatch
-from django.http import HttpResponse, HttpResponseForbidden
+from django.http import HttpResponse, HttpResponseForbidden, FileResponse
 from hod.models import SchemeCourse, FacultyAssignment, Faculty, CourseAllocation
 import logging
 import io
 import os
 from django.conf import settings
 from django.utils import timezone
+# from viewa.py import generate_syllabus_pdf_buffer as _gen_buf
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,48 @@ def faculty_dashboard(request):
     except Faculty.DoesNotExist:
         logger.info("Faculty profile not found for user %s", user.username)
         faculty_assignments = []
+
+    # Annotate each FacultyAssignment with whether a Syllabus exists for that course_code
+    try:
+        CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
+        Syllabus = apps.get_model('academics', 'Syllabus')
+        FacultySyllabusPDF = None
+        try:
+            FacultySyllabusPDF = apps.get_model('hod', 'FacultySyllabusPDF')
+        except LookupError:
+            FacultySyllabusPDF = None
+        for fa in faculty_assignments:
+            try:
+                code = getattr(fa.course_allocation, 'course_code', None)
+                fa._linked_course = CollegeLevelCourse.objects.filter(course_code=code).first()
+                fa.has_syllabus = bool(fa._linked_course and Syllabus.objects.filter(course=fa._linked_course).exists())
+                # check for existing faculty-generated PDF for this course
+                fa.has_pdf = False
+                fa.pdf_url = None
+                if FacultySyllabusPDF and fa._linked_course:
+                    latest_pdf = FacultySyllabusPDF.objects.filter(course=fa._linked_course).order_by('-created_at').first()
+                    if latest_pdf and getattr(latest_pdf, 'pdf_file'):
+                        fa.has_pdf = True
+                        try:
+                            fa.pdf_url = latest_pdf.pdf_file.url
+                        except Exception:
+                            # fallback to a view URL
+                            try:
+                                fa.pdf_url = reverse('facultymodule:view_syllabus_pdf', args=[fa.course_allocation.id])
+                            except Exception:
+                                fa.pdf_url = None
+            except Exception:
+                fa.has_syllabus = False
+                fa._linked_course = None
+                fa.has_pdf = False
+                fa.pdf_url = None
+    except LookupError:
+        # academics app not available; default to False
+        for fa in faculty_assignments:
+            fa.has_syllabus = False
+            fa._linked_course = None
+            fa.has_pdf = False
+            fa.pdf_url = None
 
     # Also fetch SchemeCourse rows assigned to this faculty user (for backward compatibility)
     assigned_courses = SchemeCourse.objects.filter(
@@ -136,11 +179,261 @@ def add_syllabus(request, course_allocation_id):
     if request.method == 'POST':
         action = request.POST.get('action', 'save_only')
         
-        # Update syllabus with form data
-        syllabus.objectives = request.POST.get('objectives', '')
-        syllabus.cie_scheme = request.POST.get('cie', '')
-        syllabus.see_scheme = request.POST.get('see', '')
-        syllabus.save()
+        # First, update course (CollegeLevelCourse) with basic editable fields
+        from decimal import Decimal
+        try:
+            # basic text fields
+            new_title = request.POST.get('course_title')
+            if new_title:
+                course.course_title = new_title.strip()
+            new_category = request.POST.get('course_category')
+            if new_category:
+                course.course_category = new_category.strip()
+
+            # teaching hours L/T/P
+            try:
+                l_val = int(request.POST.get('l') or request.POST.get('id_l') or course.teaching_hours_L or 0)
+            except Exception:
+                l_val = course.teaching_hours_L or 0
+            try:
+                t_val = int(request.POST.get('t') or request.POST.get('id_t') or course.teaching_hours_T or 0)
+            except Exception:
+                t_val = course.teaching_hours_T or 0
+            try:
+                p_val = int(request.POST.get('p') or request.POST.get('id_p') or course.teaching_hours_P or 0)
+            except Exception:
+                p_val = course.teaching_hours_P or 0
+
+            course.teaching_hours_L = l_val
+            course.teaching_hours_T = t_val
+            course.teaching_hours_P = p_val
+
+            # credits
+            try:
+                cred = request.POST.get('credits')
+                if cred is not None and cred != '':
+                    course.credits = Decimal(str(cred))
+            except Exception:
+                pass
+
+            # CIE/SEE marks
+            try:
+                cie_val = request.POST.get('cie')
+                if cie_val is not None and cie_val != '':
+                    course.cie_marks = int(cie_val)
+            except Exception:
+                pass
+            try:
+                see_val = request.POST.get('see')
+                if see_val is not None and see_val != '':
+                    course.see_marks = int(see_val)
+            except Exception:
+                pass
+
+            # semester
+            sem = request.POST.get('semester')
+            if sem:
+                try:
+                    course.semester = int(sem)
+                except Exception:
+                    course.semester = course.semester
+
+            try:
+                course.save()
+            except Exception:
+                logger.exception('Failed to save CollegeLevelCourse updates for %s', getattr(course, 'course_code', 'n/a'))
+
+        except Exception:
+            logger.exception('Error updating course from POST data')
+
+        # Update syllabus with form data (parse dynamic fields populated by JS)
+        import json
+
+        try:
+            syllabus.objectives = request.POST.get('objectives', '').strip()
+            syllabus.cie_scheme = request.POST.get('cie', '').strip()
+            syllabus.see_scheme = request.POST.get('see', '').strip()
+
+            # ===== Course Outcomes (COs) and mappings =====
+            co_items = []
+            for k in request.POST.keys():
+                if k.startswith('co_') and k[3:].isdigit():
+                    try:
+                        idx = int(k[3:])
+                        co_items.append((idx, request.POST.get(k, '').strip()))
+                    except Exception:
+                        continue
+            co_items.sort(key=lambda x: x[0])
+            outcomes_lines = [text for _, text in co_items if text]
+            syllabus.outcomes = '\n'.join(outcomes_lines)
+
+            po_mappings = []
+            pso_mappings = []
+            for idx, _ in co_items:
+                po = request.POST.get(f'co_map_po_{idx}', '').strip()
+                pso = request.POST.get(f'co_map_pso_{idx}', '').strip()
+                po_mappings.append(po)
+                pso_mappings.append(pso)
+
+            syllabus.outcomes_po_mapping = json.dumps(po_mappings) if any(po_mappings) else ''
+            syllabus.outcomes_pso_mapping = json.dumps(pso_mappings) if any(pso_mappings) else ''
+
+            # ===== Modules (titles, topics, hours) =====
+            modules = []
+            modules_topics = []
+            modules_hours = []
+            midx = 1
+            while True:
+                title = request.POST.get(f'module_title_{midx}')
+                if title is None:
+                    break
+                title = (title or '').strip()
+                topics = (request.POST.get(f'module_topics_{midx}', '') or '').strip()
+                hours = (request.POST.get(f'module_hours_{midx}', '') or '').strip()
+                if title:
+                    modules.append(title)
+                    modules_topics.append(topics)
+                    modules_hours.append(hours)
+                midx += 1
+
+            syllabus.modules = '\n'.join(modules)
+            syllabus.modules_topics = json.dumps(modules_topics) if any(modules_topics) else ''
+            syllabus.modules_hours = json.dumps(modules_hours) if any(modules_hours) else ''
+
+            # ===== Prescribed books =====
+            books = []
+            books_details = []
+            bidx = 1
+            while True:
+                title = request.POST.get(f'prescribed_title_{bidx}')
+                if title is None:
+                    break
+                title = (title or '').strip()
+                if title:
+                    books.append(title)
+                    detail = {
+                        'authors': (request.POST.get(f'prescribed_authors_{bidx}', '') or '').strip(),
+                        'edition': (request.POST.get(f'prescribed_edition_{bidx}', '') or '').strip(),
+                        'publisher': (request.POST.get(f'prescribed_publisher_{bidx}', '') or '').strip(),
+                        'year': (request.POST.get(f'prescribed_year_{bidx}', '') or '').strip(),
+                    }
+                    books_details.append(detail)
+                bidx += 1
+
+            syllabus.books = '\n'.join(books)
+            syllabus.books_details = json.dumps(books_details) if books_details else ''
+
+            # ===== Reference books =====
+            ref_books = []
+            ref_books_details = []
+            ridx = 1
+            while True:
+                title = request.POST.get(f'reference_title_{ridx}')
+                if title is None:
+                    break
+                title = (title or '').strip()
+                if title:
+                    ref_books.append(title)
+                    detail = {
+                        'authors': (request.POST.get(f'reference_authors_{ridx}', '') or '').strip(),
+                        'edition': (request.POST.get(f'reference_edition_{ridx}', '') or '').strip(),
+                        'publisher': (request.POST.get(f'reference_publisher_{ridx}', '') or '').strip(),
+                        'year': (request.POST.get(f'reference_year_{ridx}', '') or '').strip(),
+                    }
+                    ref_books_details.append(detail)
+                ridx += 1
+
+            syllabus.reference_books = '\n'.join(ref_books)
+            syllabus.reference_books_details = json.dumps(ref_books_details) if ref_books_details else ''
+
+            # ===== Ebooks and MOOCs =====
+            ebooks = []
+            eidx = 1
+            while True:
+                ev = request.POST.get(f'ebook_{eidx}')
+                if ev is None:
+                    break
+                if (ev or '').strip():
+                    ebooks.append((ev or '').strip())
+                eidx += 1
+            syllabus.ebooks = '\n'.join(ebooks)
+
+            moocs = []
+            mid = 1
+            while True:
+                mv = request.POST.get(f'mooc_{mid}')
+                if mv is None:
+                    break
+                if (mv or '').strip():
+                    moocs.append((mv or '').strip())
+                mid += 1
+            syllabus.moocs = '\n'.join(moocs)
+
+            # ===== Lab work =====
+            lab_lines = []
+            lidx = 1
+            while True:
+                lv = request.POST.get(f'lab_item_{lidx}')
+                if lv is None:
+                    break
+                if (lv or '').strip():
+                    lab_lines.append((lv or '').strip())
+                lidx += 1
+            syllabus.lab_work = '\n'.join(lab_lines)
+
+            # ===== Assessment rows -> cie_marks_data =====
+            cie_data = []
+            aidx = 1
+            while True:
+                tool = request.POST.get(f'tool_{aidx}')
+                if tool is None:
+                    break
+                tool = (tool or '').strip()
+                remarks = (request.POST.get(f'remarks_{aidx}', '') or '').strip()
+                marks = (request.POST.get(f'marks_{aidx}', '') or '').strip()
+                if tool or remarks or marks:
+                    cie_data.append({'tool': tool, 'remarks': remarks, 'marks': marks})
+                aidx += 1
+            syllabus.cie_marks_data = json.dumps(cie_data) if cie_data else ''
+
+            # ===== CO Matrix =====
+            try:
+                outcomes_count = len(outcomes_lines) if outcomes_lines else 0
+                if outcomes_count == 0:
+                    # fallback to 3 rows if none present
+                    outcomes_count = 3
+                pos_count = 14  # 12 PO + 2 PSO
+                matrix = []
+                for i in range(1, outcomes_count + 1):
+                    row = []
+                    for j in range(1, pos_count + 1):
+                        v = request.POST.get(f'matrix_{i}_{j}', '')
+                        row.append((v or '').strip())
+                    matrix.append(row)
+                syllabus.co_matrix = json.dumps(matrix) if matrix else ''
+            except Exception:
+                syllabus.co_matrix = ''
+
+            # Persist
+            syllabus.save()
+        except Exception as e:
+            logger.exception("Error parsing syllabus POST data: %s", e)
+            # fallback: ensure at least minimal save took place
+            try:
+                syllabus.save()
+            except Exception:
+                logger.exception("Failed to save syllabus after parse error")
+        # After save, attach transient display attributes so the form shows values on redirect GET
+        try:
+            # hours/week and totals used by the template
+            setattr(syllabus, 'hours_week', (course.teaching_hours_L or 0) + (course.teaching_hours_T or 0) + (course.teaching_hours_P or 0))
+            setattr(syllabus, 'total_hours', (course.teaching_hours_L or 0) * 9 + (course.teaching_hours_P or 0) * 14)
+            setattr(syllabus, 'credits', str(course.credits or ''))
+            setattr(syllabus, 'cie', getattr(course, 'cie_marks', ''))
+            setattr(syllabus, 'see', getattr(course, 'see_marks', ''))
+            setattr(syllabus, 'semester', getattr(course, 'semester', None))
+        except Exception:
+            pass
         
         if action == 'generate_pdf':
     # Generate PDF using ReportLab and pass the course_allocation so we can save metadata
@@ -151,13 +444,123 @@ def add_syllabus(request, course_allocation_id):
 
     
     # Handle GET (render form)
+    # Attach transient display attributes for template fields that live on Course
+    try:
+        setattr(syllabus, 'l', course.teaching_hours_L or 0)
+        setattr(syllabus, 't', course.teaching_hours_T or 0)
+        setattr(syllabus, 'p', course.teaching_hours_P or 0)
+        setattr(syllabus, 'course_category', getattr(course, 'course_category', '') or '')
+        setattr(syllabus, 'hours_week', (course.teaching_hours_L or 0) + (course.teaching_hours_T or 0) + (course.teaching_hours_P or 0))
+        setattr(syllabus, 'total_hours', (course.teaching_hours_L or 0) * 9 + (course.teaching_hours_P or 0) * 14)
+        setattr(syllabus, 'credits', str(course.credits or ''))
+        setattr(syllabus, 'cie', getattr(course, 'cie_marks', ''))
+        setattr(syllabus, 'see', getattr(course, 'see_marks', ''))
+        setattr(syllabus, 'semester', getattr(course, 'semester', None))
+    except Exception:
+        pass
+
+    # Prepare module_rows (for template rendering of module table)
+    module_rows = []
+    prescribed_books = []
+    reference_books = []
+    ebooks = []
+    moocs = []
+    try:
+        # modules
+        modules_list = str(syllabus.modules).split('\n') if syllabus.modules else []
+        modules_topics = json.loads(syllabus.modules_topics) if syllabus.modules_topics else []
+        modules_hours = json.loads(syllabus.modules_hours) if syllabus.modules_hours else []
+        for i, title in enumerate(modules_list, 1):
+            module_rows.append({
+                'index': i,
+                'title': title,
+                'topics': modules_topics[i-1] if i-1 < len(modules_topics) else '',
+                'hours': modules_hours[i-1] if i-1 < len(modules_hours) else ''
+            })
+
+        # prescribed books
+        books_list = str(syllabus.books).split('\n') if syllabus.books else []
+        books_details = json.loads(syllabus.books_details) if syllabus.books_details else []
+        for i, title in enumerate(books_list, 1):
+            detail = books_details[i-1] if i-1 < len(books_details) else {}
+            prescribed_books.append({
+                'index': i,
+                'title': title,
+                'authors': detail.get('authors', '') if isinstance(detail, dict) else '',
+                'edition': detail.get('edition', '') if isinstance(detail, dict) else '',
+                'publisher': detail.get('publisher', '') if isinstance(detail, dict) else '',
+                'year': detail.get('year', '') if isinstance(detail, dict) else '',
+            })
+
+        # reference books
+        ref_list = str(syllabus.reference_books).split('\n') if syllabus.reference_books else []
+        ref_details = json.loads(syllabus.reference_books_details) if syllabus.reference_books_details else []
+        for i, title in enumerate(ref_list, 1):
+            detail = ref_details[i-1] if i-1 < len(ref_details) else {}
+            reference_books.append({
+                'index': i,
+                'title': title,
+                'authors': detail.get('authors', '') if isinstance(detail, dict) else '',
+                'edition': detail.get('edition', '') if isinstance(detail, dict) else '',
+                'publisher': detail.get('publisher', '') if isinstance(detail, dict) else '',
+                'year': detail.get('year', '') if isinstance(detail, dict) else '',
+            })
+
+        # ebooks & moocs
+        ebooks = [x for x in (str(syllabus.ebooks).split('\n') if syllabus.ebooks else []) if x]
+        moocs = [x for x in (str(syllabus.moocs).split('\n') if syllabus.moocs else []) if x]
+    except Exception:
+        module_rows = []
+        prescribed_books = []
+        reference_books = []
+        ebooks = []
+        moocs = []
+
     context = {
         'course': course,
         'syllabus': syllabus,
         'initial_semester': getattr(course, 'semester', None),
         'semesters': range(1, 9),
+        'module_rows': module_rows,
+        'prescribed_books': prescribed_books,
+        'reference_books': reference_books,
+        'ebooks': ebooks,
+        'moocs': moocs,
     }
+
     return render(request, 'facultymodule/edit_syllabus.html', context)
+
+
+@login_required
+def view_syllabus_pdf(request, course_allocation_id):
+    """Return the latest saved FacultySyllabusPDF for a CourseAllocation (inline display)."""
+    try:
+        ca = get_object_or_404(CourseAllocation, pk=course_allocation_id)
+        # try to find the linked CollegeLevelCourse
+        CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
+        FacultySyllabusPDF = apps.get_model('hod', 'FacultySyllabusPDF')
+    except Exception:
+        messages.error(request, "Required models not available.")
+        return redirect('facultymodule:faculty_dashboard')
+
+    course = CollegeLevelCourse.objects.filter(course_code=getattr(ca, 'course_code', None)).first()
+    if not course:
+        messages.error(request, "No course record found for this allocation.")
+        return redirect('facultymodule:faculty_dashboard')
+
+    pdf_row = FacultySyllabusPDF.objects.filter(course=course).order_by('-created_at').first()
+    if not pdf_row or not getattr(pdf_row, 'pdf_file'):
+        messages.error(request, "No generated PDF found for this course.")
+        return redirect('facultymodule:faculty_dashboard')
+
+    try:
+        file_field = getattr(pdf_row, 'pdf_file')
+        file_path = file_field.path
+        return FileResponse(open(file_path, 'rb'), content_type='application/pdf')
+    except Exception as e:
+        logger.exception("Failed to serve saved PDF: %s", e)
+        messages.error(request, "Failed to open the saved PDF.")
+        return redirect('facultymodule:faculty_dashboard')
 
 
 @login_required
@@ -291,21 +694,49 @@ def generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc=None):
 
     # --- 1) build PDF buffer using the HOD-style generator if available ---
     try:
-        # Prefer calling the exact HOD generator already in this module
+        # Prefer a direct import from the known module (hod.pdf_generator)
         pdf_buf = None
-        if 'generate_syllabus_pdf_buffer' in globals() and callable(globals()['generate_syllabus_pdf_buffer']):
-            pdf_buf = globals()['generate_syllabus_pdf_buffer'](syllabus)
-        else:
-            # Fallback: attempt to import from same module (if you moved it)
-            try:
-                from .views import generate_syllabus_pdf_buffer as _gen_buf  # in-module import attempt
-                pdf_buf = _gen_buf(syllabus)
-            except Exception:
-                pdf_buf = None
+        try:
+            # If this module defines it already, use that.
+            if 'generate_syllabus_pdf_buffer' in globals() and callable(globals()['generate_syllabus_pdf_buffer']):
+                try:
+                    pdf_buf = globals()['generate_syllabus_pdf_buffer'](syllabus)
+                except Exception:
+                    logger.exception("Local generate_syllabus_pdf_buffer raised an exception")
+                    pdf_buf = None
+
+            # Try hod.pdf_generator if still missing
+            if pdf_buf is None:
+                try:
+                    from hod.pdf_generator import generate_syllabus_pdf_buffer as _gen_buf
+                    try:
+                        pdf_buf = _gen_buf(syllabus)
+                    except Exception:
+                        logger.exception("hod.pdf_generator.generate_syllabus_pdf_buffer raised an exception")
+                        pdf_buf = None
+                except Exception:
+                    logger.debug("Could not import generate_syllabus_pdf_buffer from hod.pdf_generator", exc_info=True)
+                    pdf_buf = None
+
+            # Try academics.views (current known location) as a fallback
+            if pdf_buf is None:
+                try:
+                    from academics.views import generate_syllabus_pdf_buffer as _acad_gen
+                    try:
+                        pdf_buf = _acad_gen(syllabus)
+                    except Exception:
+                        logger.exception("academics.views.generate_syllabus_pdf_buffer raised an exception")
+                        pdf_buf = None
+                except Exception:
+                    logger.debug("Could not import generate_syllabus_pdf_buffer from academics.views", exc_info=True)
+                    pdf_buf = None
+        except Exception as e:
+            logger.exception("Failed to obtain PDF buffer from generator: %s", e)
+            pdf_buf = None
 
         if pdf_buf is None:
             logger.error("HOD PDF generator not found; cannot create PDF.")
-            messages.error(request, "Internal error: PDF generator missing.")
+            messages.error(request, "Internal error: PDF generator missing. Please contact admin.")
             return redirect('facultymodule:faculty_dashboard')
 
         # ensure it's a BytesIO-like object
@@ -407,10 +838,102 @@ def generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc=None):
 
     # --- 3) Return PDF for download (final) ---
     try:
+        # Prefer inline display so the browser can open the PDF. Also works as a download if user chooses.
         response = HttpResponse(pdf_bytes, content_type='application/pdf')
-        response['Content-Disposition'] = f'attachment; filename="{getattr(course, "course_code", "syllabus")}_syllabus.pdf"'
+        response['Content-Disposition'] = f'inline; filename="{getattr(course, "course_code", "syllabus")}_syllabus.pdf"'
         return response
     except Exception as e:
         logger.exception("Failed to build HTTP response for PDF: %s", e)
         messages.error(request, "Failed to return PDF.")
         return redirect('facultymodule:faculty_dashboard')
+
+
+@login_required
+def view_syllabus(request, course_allocation_id):
+    """Render the saved syllabus in a read-only HTML page.
+
+    This is intended for faculty to "view as is" without entering the edit form.
+    """
+    import json
+    try:
+        ca = get_object_or_404(CourseAllocation, pk=course_allocation_id)
+        CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
+        Syllabus = apps.get_model('academics', 'Syllabus')
+    except Exception:
+        messages.error(request, "Required models not available.")
+        return redirect('facultymodule:faculty_dashboard')
+
+    course = CollegeLevelCourse.objects.filter(course_code=getattr(ca, 'course_code', None)).first()
+    if not course:
+        messages.error(request, "No course record found for this allocation.")
+        return redirect('facultymodule:faculty_dashboard')
+
+    syllabus = Syllabus.objects.filter(course=course).first()
+    if not syllabus:
+        messages.error(request, "No syllabus found for this course.")
+        return redirect('facultymodule:faculty_dashboard')
+
+    # Build display lists (same structure used by edit form)
+    module_rows = []
+    prescribed_books = []
+    reference_books = []
+    ebooks = []
+    moocs = []
+    try:
+        modules_list = str(syllabus.modules).split('\n') if syllabus.modules else []
+        modules_topics = json.loads(syllabus.modules_topics) if syllabus.modules_topics else []
+        modules_hours = json.loads(syllabus.modules_hours) if syllabus.modules_hours else []
+        for i, title in enumerate(modules_list, 1):
+            module_rows.append({
+                'index': i,
+                'title': title,
+                'topics': modules_topics[i-1] if i-1 < len(modules_topics) else '',
+                'hours': modules_hours[i-1] if i-1 < len(modules_hours) else ''
+            })
+
+        books_list = str(syllabus.books).split('\n') if syllabus.books else []
+        books_details = json.loads(syllabus.books_details) if syllabus.books_details else []
+        for i, title in enumerate(books_list, 1):
+            detail = books_details[i-1] if i-1 < len(books_details) else {}
+            prescribed_books.append({
+                'index': i,
+                'title': title,
+                'authors': detail.get('authors', '') if isinstance(detail, dict) else '',
+                'edition': detail.get('edition', '') if isinstance(detail, dict) else '',
+                'publisher': detail.get('publisher', '') if isinstance(detail, dict) else '',
+                'year': detail.get('year', '') if isinstance(detail, dict) else '',
+            })
+
+        ref_list = str(syllabus.reference_books).split('\n') if syllabus.reference_books else []
+        ref_details = json.loads(syllabus.reference_books_details) if syllabus.reference_books_details else []
+        for i, title in enumerate(ref_list, 1):
+            detail = ref_details[i-1] if i-1 < len(ref_details) else {}
+            reference_books.append({
+                'index': i,
+                'title': title,
+                'authors': detail.get('authors', '') if isinstance(detail, dict) else '',
+                'edition': detail.get('edition', '') if isinstance(detail, dict) else '',
+                'publisher': detail.get('publisher', '') if isinstance(detail, dict) else '',
+                'year': detail.get('year', '') if isinstance(detail, dict) else '',
+            })
+
+        ebooks = [x for x in (str(syllabus.ebooks).split('\n') if syllabus.ebooks else []) if x]
+        moocs = [x for x in (str(syllabus.moocs).split('\n') if syllabus.moocs else []) if x]
+    except Exception:
+        module_rows = []
+        prescribed_books = []
+        reference_books = []
+        ebooks = []
+        moocs = []
+
+    context = {
+        'course': course,
+        'syllabus': syllabus,
+        'module_rows': module_rows,
+        'prescribed_books': prescribed_books,
+        'reference_books': reference_books,
+        'ebooks': ebooks,
+        'moocs': moocs,
+    }
+
+    return render(request, 'facultymodule/view_syllabus.html', context)
