@@ -460,7 +460,7 @@ def dashboard(request, branch_pk=None):
     if not Branch or not Course:
         # academics app models not available
         return render(request, 'hod/hod_dashboard.html', {
-            'branch': None, 'courses_dean': [], 'total_credits': 0, 'pending_submissions': [], 'selected_year': '', 'selected_semester': ''
+            'branch': None, 'courses_dean': [], 'total_credits': 0, 'selected_year': '', 'selected_semester': ''
         })
 
     if branch_pk is None:
@@ -622,125 +622,9 @@ def dashboard(request, branch_pk=None):
         # keep empty when not selected
         courses_dean = []
 
-    # Fetch pending FacultySyllabusPDF submissions (not approved yet)
-    # Filter: ONLY show dean-provided (CollegeLevelCourse) courses, exclude deleted, filter by year/semester
+    # Pending/Approved syllabi display removed — feature disabled
     pending_submissions = []
-    try:
-        FacultySyllabusPDF = apps.get_model('hod', 'FacultySyllabusPDF')
-        CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
-        
-        # Get dean courses (CollegeLevelCourse) for this branch - these are the college-level courses
-        # Dean courses are identified by being CollegeLevelCourse instances (not department courses)
-        dean_courses_qs = CollegeLevelCourse.objects.filter(
-            department="All Branches",  # Only college-level courses
-            is_deleted=False  # Exclude deleted courses
-        )
-        
-        # Filter dean courses by semester if model supports it
-        if selected_semester and hasattr(CollegeLevelCourse, 'semester'):
-            try:
-                dean_courses_qs = dean_courses_qs.filter(semester=selected_semester)
-            except Exception:
-                pass
-        
-        # Get pending submissions for dean courses (CollegeLevelCourse)
-        # Base queryset: branch-specific, not approved, not rejected, course must be a dean course (CollegeLevelCourse)
-        pending_qs = FacultySyllabusPDF.objects.filter(
-            branch=branch,
-            approved=False,  # Not yet approved
-            rejected=False,  # Not rejected (rejected items are removed from pending)
-            course__is_deleted=False,  # Exclude deleted courses
-            course__in=dean_courses_qs  # INCLUDE only dean courses
-        )
-        
-        # Filter by year and semester if provided
-        if selected_year:
-            pending_qs = pending_qs.filter(year=str(selected_year))
-        if selected_semester:
-            pending_qs = pending_qs.filter(semester=str(selected_semester))
-        # Get all pending submissions ordered by most recent first
-        # Use select_related for created_by to ensure faculty name is available
-        all_pending = list(pending_qs.select_related('created_by', 'course', 'branch').order_by('-created_at'))
-        
-        
-        # Sort by semester and year for consistent display ordering
-        def sort_key(submission):
-            try:
-                sub_year = int(submission.year) if submission.year else 0
-                sub_sem = int(submission.semester) if submission.semester else 0
-            except (ValueError, TypeError):
-                sub_year = 0
-                sub_sem = 0
-            return (sub_year, sub_sem)
-        
-        all_pending.sort(key=sort_key)
-        
-        # Deduplicate: keep only the latest submission per course (one row per course)
-        latest_per_course = {}
-        for submission in all_pending:
-            cid = submission.course_id
-            if not cid:
-                continue
-            existing = latest_per_course.get(cid)
-            # Prefer submission with newer created_at; fall back to current if timestamps unavailable
-            # Prefer submission with newer created_at when available, otherwise fall back to using higher PK
-            try:
-                if not existing:
-                    latest_per_course[cid] = submission
-                else:
-                    if hasattr(submission, 'created_at') and hasattr(existing, 'created_at'):
-                        if submission.created_at > existing.created_at:
-                            latest_per_course[cid] = submission
-                        elif submission.created_at == existing.created_at:
-                            # if timestamps are identical (auto_now_add may normalize), prefer larger PK
-                            if getattr(submission, 'pk', None) and getattr(existing, 'pk', None) and submission.pk > existing.pk:
-                                latest_per_course[cid] = submission
-                    else:
-                        # fallback: use PK ordering (newer objects have larger PK)
-                        if getattr(submission, 'pk', None) and getattr(existing, 'pk', None) and submission.pk > existing.pk:
-                            latest_per_course[cid] = submission
-            except Exception:
-                latest_per_course[cid] = submission
-
-        pending_submissions = list(latest_per_course.values())
-        try:
-            logger.debug("Pending dean submission PKs and timestamps: %s", [(p.pk, getattr(p, 'created_at', None)) for p in pending_submissions])
-        except Exception:
-            pass
-    except (LookupError, Exception) as e:
-        logger.debug("FacultySyllabusPDF not found or error: %s", e)
-        pending_submissions = []
-    
-    # Fetch approved submissions for display
     approved_submissions = []
-    try:
-        FacultySyllabusPDF = apps.get_model('hod', 'FacultySyllabusPDF')
-        approved_qs = FacultySyllabusPDF.objects.filter(
-            branch=branch,
-            approved=True,
-        )
-        if selected_year:
-            approved_qs = approved_qs.filter(year=str(selected_year))
-        if selected_semester:
-            approved_qs = approved_qs.filter(semester=str(selected_semester))
-        
-        # Sort by semester and year for consistent display ordering
-        all_approved = list(approved_qs.select_related('created_by', 'course', 'branch', 'approved_by'))
-        
-        def sort_key(submission):
-            try:
-                sub_year = int(submission.year) if submission.year else 0
-                sub_sem = int(submission.semester) if submission.semester else 0
-            except (ValueError, TypeError):
-                sub_year = 0
-                sub_sem = 0
-            return (sub_year, sub_sem)
-        
-        all_approved.sort(key=sort_key)
-        approved_submissions = all_approved
-    except (LookupError, Exception) as e:
-        logger.debug("Error fetching approved submissions: %s", e)
-        approved_submissions = []
     
     # Also fetch SyllabusSubmission if it exists (for backward compatibility)
     if SyllabusSubmission:
@@ -788,8 +672,6 @@ def dashboard(request, branch_pk=None):
         'hod_assignment': getattr(request.user, 'hod_assignment', None),
         'courses_dean': courses_dean,
         'total_credits': total_credits,
-        'pending_submissions': pending_submissions,
-        'approved_submissions': approved_submissions,
         'selected_year': selected_year,
         'selected_semester': selected_semester,
         'semester_rows': semester_rows,
