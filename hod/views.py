@@ -130,10 +130,13 @@ def _build_scheme_pdf_bytes(branch, year, semester, main_rows=None, elective_row
         main_rows = []
         try:
             CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
-            dean_qs = CollegeLevelCourse.objects.filter(Q(branch__isnull=True) | Q(branch=branch))
+            # ONLY fetch college-wide dean courses (department="All Branches")
+            dean_qs = CollegeLevelCourse.objects.filter(department="All Branches")
             if hasattr(CollegeLevelCourse, 'semester'):
                 try:
                     dean_qs = dean_qs.filter(semester=semester)
+                except Exception:
+                    pass
                 except Exception:
                     pass
             for dc in dean_qs:
@@ -351,7 +354,8 @@ def _fetch_db_rows_for_scheme(branch, year, semester):
     # Dean courses (CollegeLevelCourse)
     try:
         CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
-        dean_qs = CollegeLevelCourse.objects.filter(Q(branch__isnull=True) | Q(branch=branch))
+        # ONLY fetch college-wide dean courses (department="All Branches")
+        dean_qs = CollegeLevelCourse.objects.filter(department="All Branches")
         if hasattr(CollegeLevelCourse, 'semester'):
             try:
                 dean_qs = dean_qs.filter(semester=semester)
@@ -540,7 +544,8 @@ def dashboard(request, branch_pk=None):
             # safe dean course queryset for branch or college-wide
             # Filter by year and semester if model supports these fields
             try:
-                dean_qs = CollegeLevelCourse.objects.filter(Q(branch__isnull=True) | Q(branch=branch))
+                # ONLY fetch college-wide dean courses (department="All Branches")
+                dean_qs = CollegeLevelCourse.objects.filter(department="All Branches")
                 # if model has semester field, filter by sem
                 if hasattr(CollegeLevelCourse, 'semester'):
                     try:
@@ -627,7 +632,7 @@ def dashboard(request, branch_pk=None):
         # Get dean courses (CollegeLevelCourse) for this branch - these are the college-level courses
         # Dean courses are identified by being CollegeLevelCourse instances (not department courses)
         dean_courses_qs = CollegeLevelCourse.objects.filter(
-            Q(branch__isnull=True) | Q(branch=branch),  # College-wide or branch-specific
+            department="All Branches",  # Only college-level courses
             is_deleted=False  # Exclude deleted courses
         )
         
@@ -1038,7 +1043,8 @@ def create_scheme_form(request, branch_pk, year, semester):
     
     # safe dean course queryset for branch or college-wide
     try:
-        dean_qs = Course.objects.filter(Q(branch__isnull=True) | Q(branch=branch))
+        # ONLY fetch college-wide dean courses (department="All Branches")
+        dean_qs = Course.objects.filter(department="All Branches", is_deleted=False)
         # if model has semester field, filter by sem
         if hasattr(Course, 'semester'):
             try:
@@ -1116,7 +1122,8 @@ def generate_pdf_view(request, branch_pk, year, semester):
     dean_rows = []
     try:
         CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
-        dean_qs = CollegeLevelCourse.objects.filter(Q(branch__isnull=True) | Q(branch=branch))
+        # ONLY fetch college-wide dean courses (department="All Branches")
+        dean_qs = CollegeLevelCourse.objects.filter(department="All Branches")
         # filter by semester only if model has that field
         if hasattr(CollegeLevelCourse, 'semester'):
             try:
@@ -2612,7 +2619,7 @@ def generate_combined_syllabus(request, branch_pk):
             try:
                 CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
                 dean_courses_qs = CollegeLevelCourse.objects.filter(
-                    Q(branch__isnull=True) | Q(branch=branch),
+                    department="All Branches",  # Only college-level courses
                     is_deleted=False
                 )
                 if semester and hasattr(CollegeLevelCourse, 'semester'):
@@ -3024,7 +3031,7 @@ def create_scheme(request, branch_pk, year, semester):
         try:
             # Filter by branch (college-wide courses have branch=None, branch-specific have branch=branch)
             dean_qs = Course.objects.filter(
-                Q(branch__isnull=True) | Q(branch=branch),
+                department="All Branches",  # Only college-level courses
                 is_deleted=False  # Exclude deleted courses
             )
             # Filter by semester if model has semester field
