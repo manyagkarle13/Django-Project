@@ -6,6 +6,7 @@ Fixed multiple bugs in the HOD/Faculty workflow:
 2. **Assigned Faculty Manager** - Fixed button to pass year/semester parameters
 3. **Faculty Assignment Filtering** - Already correctly filters by branch/year/semester
 4. **PDF Generation** - Always reads from DB after saving to ensure completeness
+5. **Dean Course Filtering** - Restrict dean (college-level) courses to department="All Branches" in HOD views and PDF generation so HODs don't see their own branch-specific courses in dean lists or PDFs.
 
 ## Changes Made
 
