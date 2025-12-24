@@ -358,57 +358,11 @@
     {% endif %}
 
 
-    <!-- Collapsible Semester Credits Card -->
-    <div class="card">
-      <h3 style="margin:0 0 10px;cursor:pointer;" onclick="toggleCreditsTable()">
-        Semester Credits for Admission Year {{ selected_year }}
-        <span id="toggle-arrow" style="font-size:18px;vertical-align:middle;">&#9660;</span>
-      </h3>
-      <div id="credits-table" style="display:none;">
-        {% if semester_rows %}
-          <table>
-            <thead>
-              <tr>
-                <th>Semester</th>
-                <th style="text-align:center">Credits</th>
-                <th style="text-align:center">Manage</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for sem, credits in semester_rows %}
-                <tr>
-                  <td>{{ sem }}</td>
-                  <td style="text-align:center">{{ credits }}</td>
-                  <td style="text-align:center">
-                    <form method="post" action="{% url 'hod:select_semester' branch.pk %}" style="display:inline">
-                      {% csrf_token %}
-                      <input type="hidden" name="academic_year" value="{{ selected_year }}">
-                      <input type="hidden" name="semester" value="{{ forloop.counter }}">
-                      <button class="btn" type="submit">Manage Schema</button>
-                    </form>
-                  </td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        {% else %}
-          <p style="color:#666">No semester credit record found for {{ selected_year }}.</p>
-        {% endif %}
-      </div>
-    </div>
+    <!-- Semester Credits card removed per HOD dashboard update -->
+    <!-- Removed: Collapsible Semester Credits Card and Manage Schema actions -->
 
     <script>
-    function toggleCreditsTable() {
-      var table = document.getElementById('credits-table');
-      var arrow = document.getElementById('toggle-arrow');
-      if (table.style.display === 'none') {
-        table.style.display = 'block';
-        arrow.innerHTML = '&#9650;';
-      } else {
-        table.style.display = 'none';
-        arrow.innerHTML = '&#9660;';
-      }
-    }
+    /* Removed toggleCreditsTable() — Semester Credits card removed */
 
     const sidebarMenu = document.querySelector('.sidebar-menu');
     const menuToggle = document.querySelector('.menu-toggle');
