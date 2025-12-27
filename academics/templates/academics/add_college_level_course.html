@@ -107,6 +107,18 @@
       </div>
     </div>
 
+    <div class="row">
+      <div class="col-2">
+        <label for="id_admission_year">Admission Year (optional)</label>
+        <select id="id_admission_year" name="admission_year">
+          <option value="">-- Select Admission Year --</option>
+          {% for y in admission_years %}
+            <option value="{{ y }}" {% if course.admission_year|stringformat:"s" == y|stringformat:"s" %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
     <label for="id_title">Course title</label>
     <input id="id_title" name="title" type="text" value="{{ course.course_title|default:'' }}" required>
 

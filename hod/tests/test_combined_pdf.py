@@ -21,7 +21,8 @@ class CombinedPDFTest(TestCase):
             course_category='ESC',
             course_code='DEAN101',
             course_title='Dean Course',
-            semester=1
+            semester=1,
+            admission_year='2025'
         )
 
         FacultySyllabusPDF = apps.get_model('hod', 'FacultySyllabusPDF')

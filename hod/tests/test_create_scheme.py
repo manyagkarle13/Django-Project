@@ -57,6 +57,7 @@ class CreateSchemeViewTest(TestCase):
             course_code="HS101",
             course_title="Humanities",
             course_category="HSMC",
+            department="All Branches",
             branch=None,  # College-wide
             semester=3,
             teaching_hours_L=2,
@@ -108,9 +109,9 @@ class CreateSchemeViewTest(TestCase):
         self.assertIn('dean_courses', response.context)
         dean_courses = response.context['dean_courses']
         
-        # Should include branch-specific course
+        # Should NOT include branch-specific course (we only show college-level Dean courses)
         branch_course_codes = [c['course_code'] for c in dean_courses]
-        self.assertIn('CS101', branch_course_codes)
+        self.assertNotIn('CS101', branch_course_codes)
         
         # Should include college-wide course
         self.assertIn('HS101', branch_course_codes)
@@ -129,9 +130,9 @@ class CreateSchemeViewTest(TestCase):
         self.assertEqual(response.status_code, 200)
         dean_courses = response.context['dean_courses']
         
-        # Find our test course
-        cs101 = next((c for c in dean_courses if c['course_code'] == 'CS101'), None)
-        self.assertIsNotNone(cs101, "CS101 course should be in dean_courses")
+        # Find our college-wide test course
+        hs101 = next((c for c in dean_courses if c['course_code'] == 'HS101'), None)
+        self.assertIsNotNone(hs101, "HS101 course should be in dean_courses")
         
         # Check all required fields are present
         required_fields = [
@@ -139,7 +140,7 @@ class CreateSchemeViewTest(TestCase):
             'l', 't', 'p', 'total_hours', 'cie', 'see', 'total_marks', 'credits'
         ]
         for field in required_fields:
-            self.assertIn(field, cs101, f"Field {field} should be in dean course dict")
+            self.assertIn(field, hs101, f"Field {field} should be in dean course dict")
 
     def test_create_scheme_response_contains_dean_course_title(self):
         """Test that HTML response contains dean course title."""
@@ -149,9 +150,9 @@ class CreateSchemeViewTest(TestCase):
         self.assertEqual(response.status_code, 200)
         content = response.content.decode('utf-8')
         
-        # Should contain the course title in the HTML
-        self.assertIn('Introduction to Computer Science', content)
-        self.assertIn('CS101', content)
+        # Should contain the college-wide course title in the HTML (CS101 is branch-specific and excluded)
+        self.assertIn('Humanities', content)
+        self.assertIn('HS101', content)
 
     def test_create_scheme_filters_by_semester(self):
         """Test that only courses for the specified semester are included."""
@@ -165,6 +166,44 @@ class CreateSchemeViewTest(TestCase):
         # (We can't directly check semester from the dict, but we know CS201 is sem 4 and shouldn't appear)
         course_codes = [c['course_code'] for c in dean_courses]
         self.assertNotIn('CS201', course_codes, "Semester 4 course should not appear for semester 3")
+
+    def test_create_scheme_filters_by_admission_year(self):
+        """Test that only dean courses for the specified admission year are included."""
+        # Create dean course for 2024 and 2025
+        CollegeLevelCourse.objects.create(
+            course_code="YR24",
+            course_title="Year 2024 Course",
+            course_category="PCC",
+            department="All Branches",
+            branch=None,
+            semester=3,
+            admission_year=2024,
+            is_deleted=False
+        )
+        CollegeLevelCourse.objects.create(
+            course_code="YR25",
+            course_title="Year 2025 Course",
+            course_category="PCC",
+            department="All Branches",
+            branch=None,
+            semester=3,
+            admission_year=2025,
+            is_deleted=False
+        )
+
+        url_2025 = reverse('hod:create_scheme', args=[self.branch.pk, 2025, 3])
+        resp_2025 = self.client.get(url_2025)
+        self.assertEqual(resp_2025.status_code, 200)
+        codes_2025 = [c['course_code'] for c in resp_2025.context['dean_courses']]
+        self.assertIn('YR25', codes_2025)
+        self.assertNotIn('YR24', codes_2025)
+
+        url_2024 = reverse('hod:create_scheme', args=[self.branch.pk, 2024, 3])
+        resp_2024 = self.client.get(url_2024)
+        self.assertEqual(resp_2024.status_code, 200)
+        codes_2024 = [c['course_code'] for c in resp_2024.context['dean_courses']]
+        self.assertIn('YR24', codes_2024)
+        self.assertNotIn('YR25', codes_2024)
 
     def test_create_scheme_excludes_deleted_courses(self):
         """Test that deleted courses are excluded."""
@@ -198,6 +237,11 @@ class CreateSchemeViewTest(TestCase):
             self.assertEqual(response.status_code, 200)
         except NameError as e:
             self.fail(f"NameError should not occur: {e}")
+
+    def test_dean_course_saved_and_queryable(self):
+        """Sanity: created dean course should be queryable with department filter."""
+        exists = CollegeLevelCourse.objects.filter(course_code='HS101', department='All Branches', semester=3, is_deleted=False).exists()
+        self.assertTrue(exists, "HS101 should exist in DB and be queryable with department filter")
 
     def test_pdf_generation_includes_dean_and_elective(self):
         """Test that PDF generation includes dean and elective courses."""

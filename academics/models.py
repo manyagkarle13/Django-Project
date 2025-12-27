@@ -26,6 +26,8 @@ class CollegeLevelCourse(models.Model):
         blank=True, 
         help_text="Semester number (1-8). Optional."
     )
+    # Admission year for which the dean course applies (e.g., 2023, 2024). Optional.
+    admission_year = models.CharField(max_length=8, null=True, blank=True, help_text="Admission year (e.g. 2025). Optional.")
     
     teaching_hours_L = models.IntegerField(default=0)
     teaching_hours_T = models.IntegerField(default=0)

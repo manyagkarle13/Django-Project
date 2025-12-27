@@ -13,6 +13,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.apps import apps
 from django.db.models import Q
+from django.db import OperationalError
 
 from .models import (
     CollegeLevelCourse,
@@ -801,6 +802,9 @@ def dean_dashboard(request):
 
 @login_required
 def add_college_level_course(request):
+    # admission years to display in the template (2018..2030)
+    admission_years = [str(y) for y in range(2018, 2031)]
+
     if request.method == "POST":
         action = request.POST.get("action")
         course_category = request.POST.get("course_type", "").strip()
@@ -822,11 +826,12 @@ def add_college_level_course(request):
             credits = float(request.POST.get("credits") or 0)
         except ValueError:
             messages.error(request, "Invalid numeric input for hours/credits.")
-            return render(request, "academics/add_college_level_course.html")
+            return render(request, "academics/add_college_level_course.html", {"admission_years": admission_years})
 
         cie_marks = int(request.POST.get("cie_marks") or 50)
         see_marks = int(request.POST.get("see_marks") or 50)
         description = request.POST.get("description", "")
+        admission_year = (request.POST.get("admission_year") or "").strip() or None
 
         course = CollegeLevelCourse.objects.create(
             department="All Branches",
@@ -834,6 +839,7 @@ def add_college_level_course(request):
             course_code=course_code,
             course_title=title,
             semester=semester,
+            admission_year=admission_year,
             teaching_hours_L=l,
             teaching_hours_T=t,
             teaching_hours_P=p,
@@ -853,7 +859,7 @@ def add_college_level_course(request):
         messages.success(request, "Course saved successfully.")
         return redirect(reverse("academics:review_history"))
 
-    return render(request, "academics/add_college_level_course.html")
+    return render(request, "academics/add_college_level_course.html", {"admission_years": admission_years})
 
 
 @login_required
@@ -877,13 +883,14 @@ def edit_college_level_course(request, pk):
             return render(
                 request,
                 "academics/add_college_level_course.html",
-                {"course": course, "editing": True},
+                {"course": course, "editing": True, "admission_years": [str(y) for y in range(2018, 2031)]},
             )
 
         course.cie_marks = int(request.POST.get("cie_marks") or 50)
         course.see_marks = int(request.POST.get("see_marks") or 50)
         course.description = request.POST.get("description", "")
         course.department = "All Branches"
+        course.admission_year = (request.POST.get("admission_year") or "").strip() or None
         course.save()
 
         if request.POST.get("action") == "generate":
@@ -895,7 +902,7 @@ def edit_college_level_course(request, pk):
         messages.success(request, "Course updated successfully.")
         return redirect(reverse("academics:review_history"))
 
-    return render(request, "academics/add_college_level_course.html", {"course": course, "editing": True})
+    return render(request, "academics/add_college_level_course.html", {"course": course, "editing": True, "admission_years": [str(y) for y in range(2018, 2031)]})
 
 
 @login_required
@@ -1014,26 +1021,55 @@ def edit_semester_credit(request, pk):
 # -------------------------------------------------------------------------
 @login_required
 def syllabus_list(request):
-    courses = CollegeLevelCourse.objects.filter(is_deleted=False).order_by("course_code")
+    try:
+        # Show only college-wide dean-provided courses by default
+        courses = CollegeLevelCourse.objects.filter(is_deleted=False, department="All Branches", branch__isnull=True).order_by("course_code")
 
-    # latest syllabus per course map
-    syllabus_sem_map = {}
-    qs = Syllabus.objects.filter(course__in=courses).order_by("course_id", "-created_on")
-    for s in qs:
-        if s.course_id not in syllabus_sem_map:
-            syllabus_sem_map[s.course_id] = getattr(s, "semester", None)
-
-    for c in courses:
-        sem = getattr(c, "semester", None) or syllabus_sem_map.get(c.pk)
-        if sem not in (None, "", 0):
+        # Optional strict filters: if GET params provided, filter by both admission_year and semester
+        year = (request.GET.get('admission_year') or "").strip()
+        semester = (request.GET.get('semester') or "").strip()
+        if year:
+            for year_field in ['admission_year', 'year', 'academic_year']:
+                if hasattr(CollegeLevelCourse, year_field):
+                    try:
+                        courses = courses.filter(**{year_field: year})
+                    except Exception:
+                        try:
+                            courses = courses.filter(**{year_field: int(year)})
+                        except Exception:
+                            pass
+                    break
+        if semester and hasattr(CollegeLevelCourse, 'semester'):
             try:
-                setattr(c, "display_semester", f"Sem {int(sem)}")
-            except (ValueError, TypeError):
-                c.display_semester = str(sem)
-        else:
-            c.display_semester = ""
+                courses = courses.filter(semester=semester)
+            except Exception:
+                try:
+                    courses = courses.filter(semester=int(semester))
+                except Exception:
+                    pass
 
-    return render(request, "academics/add_syllabus_list.html", {"courses": courses})
+        # latest syllabus per course map
+        syllabus_sem_map = {}
+        qs = Syllabus.objects.filter(course__in=courses).order_by("course_id", "-created_on")
+        for s in qs:
+            if s.course_id not in syllabus_sem_map:
+                syllabus_sem_map[s.course_id] = getattr(s, "semester", None)
+
+        for c in courses:
+            sem = getattr(c, "semester", None) or syllabus_sem_map.get(c.pk)
+            if sem not in (None, "", 0):
+                try:
+                    setattr(c, "display_semester", f"Sem {int(sem)}")
+                except (ValueError, TypeError):
+                    c.display_semester = str(sem)
+            else:
+                c.display_semester = ""
+
+        return render(request, "academics/add_syllabus_list.html", {"courses": courses})
+    except OperationalError as e:
+        logger.exception("Database error in syllabus_list: %s", e)
+        messages.error(request, "Database schema is not up-to-date (missing columns). Try running 'python manage.py migrate'.")
+        return redirect("academics:dean_dashboard")
 
 
 @login_required
@@ -1048,6 +1084,25 @@ def add_syllabus(request, course_id):
     if request.method == "POST":
         import json
         action = request.POST.get("action", "").lower()
+
+        # Prevent Dean from overwriting an existing syllabus created by HOD/Faculty.
+        dean_protect = False
+        if getattr(request.user, 'role', '') == 'dean' and not created:
+            dean_protect = True
+            messages.info(request, "Existing syllabus present; Dean edits will not overwrite the existing syllabus. Use Generate PDF to download or contact HOD/Faculty to update the syllabus.")
+            # Allow generate action to still create a PDF for viewing/downloading
+            if action in ("generate", "generate_pdf"):
+                try:
+                    buf = generate_syllabus_pdf_buffer(syllabus)
+                    buf.seek(0)
+                    filename = f"{course.course_code}_syllabus.pdf"
+                    return FileResponse(buf, as_attachment=True, filename=filename)
+                except Exception as e:
+                    logger.exception("PDF generation failed for Dean: %s", e)
+                    messages.error(request, "PDF generation failed.")
+                    return redirect(request.path)
+            # For other actions (save), do not modify the syllabus record
+            return redirect(reverse("academics:syllabus_list"))
 
         # store big text fields (these names should match your form fields)
         syllabus.objectives = request.POST.get("objectives", "") or ""
@@ -1353,15 +1408,19 @@ def review_history(request):
     credit_flag = _get_deleted_flag_name(SemesterCredit) or "deleted"
     syllabus_flag = _get_deleted_flag_name(Syllabus) or "deleted"
 
-    if show_deleted:
-        courses = CollegeLevelCourse.objects.filter(**{course_flag: True}).order_by("-deleted_at")
-        credits = SemesterCredit.objects.filter(**{credit_flag: True}).order_by("-id")
-        syllabi = Syllabus.objects.filter(**{syllabus_flag: True}).order_by("-deleted_at")
-    else:
-        courses = CollegeLevelCourse.objects.filter(**{course_flag: False}).order_by("course_code")
-        credits = SemesterCredit.objects.filter(**{credit_flag: False}).order_by("-id")
-        syllabi = Syllabus.objects.filter(**{syllabus_flag: False}).order_by("-created_on")
-
+    try:
+        if show_deleted:
+            courses = CollegeLevelCourse.objects.filter(**{course_flag: True}).order_by("-deleted_at")
+            credits = SemesterCredit.objects.filter(**{credit_flag: True}).order_by("-id")
+            syllabi = Syllabus.objects.filter(**{syllabus_flag: True}).order_by("-deleted_at")
+        else:
+            courses = CollegeLevelCourse.objects.filter(**{course_flag: False}).order_by("course_code")
+            credits = SemesterCredit.objects.filter(**{credit_flag: False}).order_by("-id")
+            syllabi = Syllabus.objects.filter(**{syllabus_flag: False}).order_by("-created_on")
+    except OperationalError as e:
+        logger.exception("Database error in review_history: %s", e)
+        messages.error(request, "Database schema is not up-to-date (missing columns). Try running 'python manage.py migrate'.")
+        return redirect("academics:dean_dashboard")
     # Build a map course_id -> latest syllabus.semester (best-effort)
     syllabus_map = {}
     latest_syllabi = (
@@ -1396,6 +1455,13 @@ def review_history(request):
             except (ValueError, TypeError):
                 display = str(sem)
         setattr(s, "display_semester", display)
+
+    # Set display_admission_year for syllabi (show course.admission_year when available)
+    for s in syllabi:
+        ay = None
+        if getattr(s, 'course', None):
+            ay = getattr(s.course, 'admission_year', None)
+        setattr(s, 'display_admission_year', ay or '')
 
     return render(request, "academics/review_history.html", {
         "courses": courses,

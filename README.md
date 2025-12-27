@@ -1,152 +1,142 @@
-# MCE Syllabus Maker for Faculty — Project Report
+📘 MCE Syllabus Maker – Web Application for Automated Syllabus Generation
+Mini Project (23IS506)
 
-## Abstract
+Department of Information Science & Engineering
+Malnad College of Engineering, Hassan
+Academic Year: 2025–26
 
-Preparing a syllabus book is a tedious, time-consuming, and repetitive task for faculty and departments. Traditionally, it takes several weeks to manually type, format, and compile course syllabi into a single official PDF. To address this, **MCE Syllabus Maker for Faculty** is a Django-based web application that allows faculty and HODs to log in from a single unified portal using Faculty ID or Email ID, enter syllabus details via structured forms, auto-format them into the official college style, store them in a database for reuse, and generate both single-course syllabi and full department syllabus books (with cover pages, scheme tables, and preface). This eliminates duplication, ensures consistency, and significantly reduces manual effort.
+📌 Abstract
 
----
+Syllabus preparation is a repetitive and time-consuming academic activity that often involves manual typing, inconsistent formatting, and difficulty in consolidating documents across departments. Faculty members usually prepare syllabi individually, leading to non-uniform documents and increased manual effort.
 
-## Problem Statement
+To overcome these challenges, MCE Syllabus Maker is developed as a Django-based web application that automates and standardizes the syllabus creation process. The system enables structured digital entry of syllabus details such as course objectives, outcomes, modules, assessments, and references. With role-based access for Dean, HODs, and faculty, the application ensures centralized storage, consistent formatting, and automated generation of syllabus PDFs in the official MCE format. This significantly reduces manual work and improves accuracy and efficiency in academic documentation.
 
-Current syllabus preparation suffers from:
+📌 Problem Statement
 
-- Manual & time-consuming processes
-- Inconsistent formatting across faculty
-- Difficulty consolidating multiple syllabi into one official document
-- Lack of centralized, reusable storage for syllabus content
+The traditional syllabus preparation process is largely manual and lacks standardization. Faculty members follow different formats while preparing syllabi, making consolidation difficult and error-prone. There is no centralized system to store, reuse, or update syllabus content, resulting in repetitive work and inconsistencies across departments and academic years.
 
-This project addresses those issues by providing a unified, structured, and automated workflow.
+🎯 Objectives of the Project
 
----
+To automate and digitize the syllabus preparation process.
 
-## Proposed Solution (Detailed)
+To ensure uniform syllabus formatting across departments.
 
-The application digitizes the syllabus creation workflow and provides:
+To provide centralized storage for syllabus data.
 
-1. Unified Login for Faculty & HOD
+To enable role-based access for Dean, HODs, and faculty.
 
-   - Single login page for all users (Faculty ID or Email ID).
-   - Role (HOD/Faculty) is determined from the user profile in the database after authentication.
+To generate individual course syllabi and department-level syllabus books in PDF format.
 
-2. Dynamic Syllabus Entry Forms
+To reduce manual effort and improve academic documentation efficiency.
 
-   - Structured forms to capture every part of the syllabus, including:
-     - Course Info: Title, Code, L-T-P, Hours/Week, Credits
-     - Objectives
-     - Outcomes (COs) — minimum 4, mapped to POs/PSOs
-     - Modules: Module number, hours, topics
-     - CIE & SEE schemes
-     - Activities (if no lab) and Lab experiments (if applicable)
-     - Books, E-Books (with links), MOOC courses
-     - Assessment rubrics
+🧩 Modules Implemented
+1. Authentication Module
 
-3. Storage and Reuse
+Secure login for Dean, HOD, and Faculty.
 
-   - Syllabus data stored in a relational database (PostgreSQL/MySQL). Flexible data (modules, resources) can be stored as JSON fields for easy reuse.
+Role identification after login.
 
-4. Auto-Formatting Assistant
+2. Dean Module
 
-   - Generates output in the official college style so faculty only need to provide content.
+Define college-level courses.
 
-5. Export Options
+Manage semester credits and academic structures.
 
-   - Export individual syllabi as PDF or DOCX.
-   - Generate a Master Syllabus Book (title page, preface, scheme tables, and all combined syllabi).
+View syllabus completion statistics.
 
-6. Search and Reuse
+3. HOD Module
 
-   - Search past syllabi and reuse sections (books, modules, MOOCs).
+Create department-wise academic schemes.
 
-7. Optional Analytics Dashboard
+Assign subjects to faculty.
 
-   - Track progress, visualize distributions and commonly used resources.
+Verify and approve submitted syllabi.
 
----
+4. Faculty Module
 
-## Software & Tools
+Enter syllabus details including objectives, COs, modules, assessments, and references.
 
-- Backend: Django (Python)
-- Frontend: HTML5, CSS3, (Bootstrap 5 recommended)
-- Database: PostgreSQL or MySQL (SQLite for prototyping)
-- PDF Generation: WeasyPrint (note: system libs required)
-- DOCX Export: python-docx
-- Charts: Chart.js
-- Version Control: Git / GitHub
-- Deployment options: PythonAnywhere, Render, Railway.app, or a VPS
+Edit and update syllabus information.
 
----
+Generate individual course syllabus PDFs.
 
-## Modules of the Project
+5. PDF Generation Module
 
-1. Unified Authentication & Role Management
-2. Course & Syllabus Management (forms, modules, COs, resources)
-3. Database Storage with version history
-4. Export Module (PDF/DOCX and Master Book)
-5. Search & Reuse functionality
-6. Analytics Dashboard (optional enhancement)
+Auto-formatted syllabus generation using official MCE structure.
 
----
+Department-level syllabus book generation.
 
-## How to Use (Operation Flow)
+6. Analytics & Monitoring
 
-1. Faculty/HOD log in using Faculty ID or Email ID.
-2. System identifies role (HOD/Faculty) from database profile.
-3. Faculty selects assigned course or creates a new course, then enters syllabus details.
-4. Save syllabus → Preview formatted view → Export as PDF/DOCX.
-5. HOD/Faculty combines syllabi to generate Master Department Syllabus Book.
+View syllabus submission and completion status.
 
----
+Track faculty and course-wise progress.
 
-## How to Run (local development)
+🛠️ Platform & Tools Used
 
-Open a PowerShell terminal in the project root (where `manage.py` is located) and run:
+Backend: Django (Python)
 
-```powershell
-# activate virtual environment (Windows)
-.\syllabusmaker\Scripts\Activate.ps1
+Frontend: HTML, CSS
 
-# install dependencies if needed
+Database: SQLite
+
+PDF Generation: ReportLab
+
+Client-Side Scripting: JavaScript (basic)
+
+IDE: Visual Studio Code
+
+Version Control: Git & GitHub
+
+Note: The system is designed to be scalable and database-independent, allowing future migration to PostgreSQL.
+
+⚙️ How to Run the Project (Local Setup)
+# create virtual environment
+python -m venv venv
+
+# activate virtual environment
+venv\Scripts\activate
+
+# install required dependencies
 pip install -r requirements.txt
 
-# apply migrations
+# apply database migrations
 python manage.py migrate
 
-# create a superuser (optional)
+# create superuser (optional)
 python manage.py createsuperuser
 
 # run the development server
 python manage.py runserver
-```
 
-Then open http://127.0.0.1:8000/ in your browser.
 
-Notes:
-- If you use WeasyPrint for PDF generation, install its system dependencies (Cairo, Pango, GDK-PixBuf) on your OS before using it. On Windows, follow WeasyPrint docs for prerequisites.
+Open your browser and navigate to:
+👉 http://127.0.0.1:8000/
 
----
+✅ Advantages of the System
 
-## Problems Overcome
+Eliminates repetitive manual syllabus preparation.
 
-- Eliminates manual formatting and long compilation times.
-- Centralized storage for reuse.
-- Fast generation of official-format PDFs and Master Books.
+Ensures consistent and standardized formatting.
 
----
+Centralized syllabus storage for reuse and updates.
 
-## Future Enhancements
+Faster generation of syllabus PDFs.
 
-- AI suggestions for COs and book recommendations.
-- Mobile app companion.
-- Integration with college ERP.
-- Collaborative editing with approval workflows.
+Improved coordination between faculty, HODs, and Dean.
 
----
+📈 Future Enhancements
 
-## Next Steps I can help with
+AI-based suggestions for Course Outcomes and references.
 
-- Convert this Markdown to a printable PDF or a nicely styled HTML report.
-- Add a formal cover page template and college branding to the site templates.
-- Implement the database models and basic CRUD views/forms for courses, COs, modules, and resources.
-- Wire up WeasyPrint to generate PDF output for individual courses and the master book.
+Advanced analytics dashboards for syllabus monitoring.
 
-If you want, tell me which step you'd like me to implement first and I will start making the code changes and add tests.
+Integration with college ERP systems.
+
+Cloud-based multi-department deployment.
+
+Improved UI and mobile responsiveness.
+
+📌 Conclusion
+
+The MCE Syllabus Maker successfully automates and standardizes the syllabus preparation process, addressing the major limitations of manual documentation. By providing structured data entry, role-based workflows, centralized storage, and automated PDF generation, the system improves efficiency, accuracy, and consistency in academic documentation. This project demonstrates the effective use of web technologies to modernize traditional academic processes and supports long-term institutional growth.

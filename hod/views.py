@@ -131,14 +131,24 @@ def _build_scheme_pdf_bytes(branch, year, semester, main_rows=None, elective_row
         try:
             CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
             # ONLY fetch college-wide dean courses (department="All Branches")
-            dean_qs = CollegeLevelCourse.objects.filter(department="All Branches")
+            dean_qs = CollegeLevelCourse.objects.filter(department="All Branches", is_deleted=False, branch__isnull=True)
+            # filter by semester only if model has that field
             if hasattr(CollegeLevelCourse, 'semester'):
                 try:
+                    dean_qs = dean_qs.filter(semester=int(semester))
+                except Exception:
                     dean_qs = dean_qs.filter(semester=semester)
-                except Exception:
-                    pass
-                except Exception:
-                    pass
+            # filter by admission_year if model supports it (STRICT: only include courses with matching year when provided)
+            for year_field in ['admission_year', 'year', 'academic_year']:
+                if hasattr(CollegeLevelCourse, year_field) and year not in (None, '', 0):
+                    try:
+                        dean_qs = dean_qs.filter(**{year_field: int(year)})
+                    except Exception:
+                        try:
+                            dean_qs = dean_qs.filter(**{year_field: str(year)})
+                        except Exception:
+                            pass
+                    break
             for dc in dean_qs:
                 main_rows.append({
                     'category': getattr(dc, 'course_category', '') or '',
@@ -355,13 +365,25 @@ def _fetch_db_rows_for_scheme(branch, year, semester):
     try:
         CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
         # ONLY fetch college-wide dean courses (department="All Branches")
-        dean_qs = CollegeLevelCourse.objects.filter(department="All Branches")
+        dean_qs = CollegeLevelCourse.objects.filter(department="All Branches", is_deleted=False, branch__isnull=True)
+        # filter by semester only if model has that field
         if hasattr(CollegeLevelCourse, 'semester'):
             try:
                 dean_qs = dean_qs.filter(semester=semester)
             except Exception:
                 pass
-        
+        # filter by admission_year if model supports it (STRICT: only include courses with matching year when provided)
+        for year_field in ['admission_year', 'year', 'academic_year']:
+            if hasattr(CollegeLevelCourse, year_field) and year not in (None, '', 0):
+                try:
+                    dean_qs = dean_qs.filter(**{year_field: int(year)})
+                except Exception:
+                    try:
+                        dean_qs = dean_qs.filter(**{year_field: str(year)})
+                    except Exception:
+                        pass
+                break
+
         for c in dean_qs:
             faculty_name = ''
             if getattr(c, 'faculty', None):
@@ -545,23 +567,29 @@ def dashboard(request, branch_pk=None):
             # Filter by year and semester if model supports these fields
             try:
                 # ONLY fetch college-wide dean courses (department="All Branches")
-                dean_qs = CollegeLevelCourse.objects.filter(department="All Branches")
+                dean_qs = CollegeLevelCourse.objects.filter(department="All Branches", is_deleted=False, branch__isnull=True)
                 # if model has semester field, filter by sem
                 if hasattr(CollegeLevelCourse, 'semester'):
                     try:
-                        dean_qs = dean_qs.filter(semester=selected_semester)
+                        dean_qs = dean_qs.filter(semester=int(selected_semester))
                     except Exception:
-                        # if semester field uses string/other format, try cast
-                        pass
-                # if model has admission_year or year field, filter by year
+                        try:
+                            dean_qs = dean_qs.filter(semester=selected_semester)
+                        except Exception:
+                            pass
+                # if model has admission_year or year field, filter by year (STRICT match - only include courses for the given admission year)
                 if selected_year:
                     for year_field in ['admission_year', 'year', 'academic_year']:
                         if hasattr(CollegeLevelCourse, year_field):
                             try:
-                                dean_qs = dean_qs.filter(**{year_field: selected_year})
+                                dean_qs = dean_qs.filter(**{year_field: int(selected_year)})
                                 break
                             except Exception:
-                                pass
+                                try:
+                                    dean_qs = dean_qs.filter(**{year_field: selected_year})
+                                    break
+                                except Exception:
+                                    pass
             except Exception:
                 dean_qs = CollegeLevelCourse.objects.none()
 
@@ -926,7 +954,7 @@ def create_scheme_form(request, branch_pk, year, semester):
     # safe dean course queryset for branch or college-wide
     try:
         # ONLY fetch college-wide dean courses (department="All Branches")
-        dean_qs = Course.objects.filter(department="All Branches", is_deleted=False)
+        dean_qs = Course.objects.filter(department="All Branches", is_deleted=False, branch__isnull=True)
         # if model has semester field, filter by sem
         if hasattr(Course, 'semester'):
             try:
@@ -934,6 +962,17 @@ def create_scheme_form(request, branch_pk, year, semester):
             except Exception:
                 # if semester field uses string/other format, try cast
                 pass
+        # if model has admission_year (or similar), filter by provided year (STRICT match when provided)
+        for year_field in ['admission_year', 'year', 'academic_year']:
+            if hasattr(Course, year_field) and year not in (None, '', 0):
+                try:
+                    dean_qs = dean_qs.filter(**{year_field: year})
+                except Exception:
+                    try:
+                        dean_qs = dean_qs.filter(**{year_field: str(year)})
+                    except Exception:
+                        pass
+                break
     except Exception:
         dean_qs = Course.objects.none()
 
@@ -1005,13 +1044,24 @@ def generate_pdf_view(request, branch_pk, year, semester):
     try:
         CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
         # ONLY fetch college-wide dean courses (department="All Branches")
-        dean_qs = CollegeLevelCourse.objects.filter(department="All Branches")
+        dean_qs = CollegeLevelCourse.objects.filter(department="All Branches", is_deleted=False, branch__isnull=True)
         # filter by semester only if model has that field
         if hasattr(CollegeLevelCourse, 'semester'):
             try:
                 dean_qs = dean_qs.filter(semester=int(semester))
             except Exception:
                 dean_qs = dean_qs.filter(semester=semester)
+        # filter by admission_year if model supports it (STRICT when 'year' provided)
+        for year_field in ['admission_year', 'year', 'academic_year']:
+            if hasattr(CollegeLevelCourse, year_field) and year not in (None, '', 0):
+                try:
+                    dean_qs = dean_qs.filter(**{year_field: int(year)})
+                except Exception:
+                    try:
+                        dean_qs = dean_qs.filter(**{year_field: year})
+                    except Exception:
+                        pass
+                break
 
         for dc in dean_qs:
             # safe numeric field extraction
@@ -2502,13 +2552,25 @@ def generate_combined_syllabus(request, branch_pk):
                 CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
                 dean_courses_qs = CollegeLevelCourse.objects.filter(
                     department="All Branches",  # Only college-level courses
-                    is_deleted=False
+                    is_deleted=False,
+                    branch__isnull=True,
                 )
                 if semester and hasattr(CollegeLevelCourse, 'semester'):
                     try:
                         dean_courses_qs = dean_courses_qs.filter(semester=semester)
                     except Exception:
                         pass
+                # filter by admission_year if model supports it and we have 'year' (STRICT match)
+                for year_field in ['admission_year', 'year', 'academic_year']:
+                    if hasattr(CollegeLevelCourse, year_field) and year not in (None, '', 0):
+                        try:
+                            dean_courses_qs = dean_courses_qs.filter(**{year_field: int(year)})
+                        except Exception:
+                            try:
+                                dean_courses_qs = dean_courses_qs.filter(**{year_field: str(year)})
+                            except Exception:
+                                pass
+                        break
 
                 dean_sub_qs = FacultySyllabusPDF.objects.filter(
                     branch=branch,
@@ -2914,7 +2976,8 @@ def create_scheme(request, branch_pk, year, semester):
             # Filter by branch (college-wide courses have branch=None, branch-specific have branch=branch)
             dean_qs = Course.objects.filter(
                 department="All Branches",  # Only college-level courses
-                is_deleted=False  # Exclude deleted courses
+                is_deleted=False,  # Exclude deleted courses
+                branch__isnull=True,
             )
             # Filter by semester if model has semester field
             if hasattr(Course, 'semester'):
@@ -2925,10 +2988,22 @@ def create_scheme(request, branch_pk, year, semester):
                         dean_qs = dean_qs.filter(semester=semester)
                     except Exception:
                         pass
+            # Filter by admission_year if model supports it (STRICT match when year provided)
+            for year_field in ['admission_year', 'year', 'academic_year']:
+                if hasattr(Course, year_field) and year not in (None, '', 0):
+                    try:
+                        dean_qs = dean_qs.filter(**{year_field: int(year)})
+                    except Exception:
+                        try:
+                            dean_qs = dean_qs.filter(**{year_field: year})
+                        except Exception:
+                            pass
+                    break
         except Exception as e:
             logger.exception("Error fetching dean courses: %s", e)
             dean_qs = Course.objects.none()
 
+        logger.info("Dean queryset size for create_scheme: %d", dean_qs.count())
         for c in dean_qs:
             try:
                 f_id = None

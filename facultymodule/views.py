@@ -436,8 +436,18 @@ def add_syllabus(request, course_allocation_id):
             pass
         
         if action == 'generate_pdf':
-    # Generate PDF using ReportLab and pass the course_allocation so we can save metadata
-            return generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc)
+            # For faculty, generating a PDF should save the PDF by default (behave like Dean).
+            # Ensure this auto-save applies only to faculty users accessing this view.
+            try:
+                is_faculty = getattr(request.user, 'role', '') == 'faculty'
+            except Exception:
+                is_faculty = False
+            if is_faculty:
+                save_pdf_flag = True
+            else:
+                # fallback to explicit POST flag (defensive)
+                save_pdf_flag = bool(request.POST.get('save_pdf'))
+            return generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc, save_pdf=save_pdf_flag)
         else:
             messages.success(request, "Syllabus saved successfully!")
             return redirect('facultymodule:faculty_dashboard')
@@ -526,9 +536,13 @@ def add_syllabus(request, course_allocation_id):
         'reference_books': reference_books,
         'ebooks': ebooks,
         'moocs': moocs,
+        # mark to template that this is a faculty edit page
+        'is_faculty': True,
+        'course_allocation_id': getattr(course_alloc, 'id', None),
     }
 
-    return render(request, 'facultymodule/edit_syllabus.html', context)
+    # Render Dean-style syllabus form to keep faculty 'Add Syllabus' experience identical to the prior Dean UI
+    return render(request, 'academics/add_syllabus.html', context)
 
 
 @login_required
@@ -675,11 +689,11 @@ def submit_syllabus(request, course_id):
         logger.exception("Error updating submission: %s", e)
         messages.error(request, "Failed to update submission. Please contact admin.")
 
-def generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc=None):
+def generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc=None, save_pdf=False):
     """
-    Wrapper that generates the HOD-style syllabus PDF using
-    generate_syllabus_pdf_buffer(...) and then attempts to save a copy
-    into hod.FacultySyllabusPDF (defensive). Returns HttpResponse for download.
+    Generate the HOD-style syllabus PDF and optionally save a copy as
+    `hod.FacultySyllabusPDF` when `save_pdf` is True (faculty-only option).
+    Always returns the PDF inline for the browser to display/download.
     """
     import logging
     import io
@@ -694,10 +708,9 @@ def generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc=None):
 
     # --- 1) build PDF buffer using the HOD-style generator if available ---
     try:
-        # Prefer a direct import from the known module (hod.pdf_generator)
         pdf_buf = None
+        # Try available generators in order of preference
         try:
-            # If this module defines it already, use that.
             if 'generate_syllabus_pdf_buffer' in globals() and callable(globals()['generate_syllabus_pdf_buffer']):
                 try:
                     pdf_buf = globals()['generate_syllabus_pdf_buffer'](syllabus)
@@ -705,7 +718,6 @@ def generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc=None):
                     logger.exception("Local generate_syllabus_pdf_buffer raised an exception")
                     pdf_buf = None
 
-            # Try hod.pdf_generator if still missing
             if pdf_buf is None:
                 try:
                     from hod.pdf_generator import generate_syllabus_pdf_buffer as _gen_buf
@@ -718,7 +730,6 @@ def generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc=None):
                     logger.debug("Could not import generate_syllabus_pdf_buffer from hod.pdf_generator", exc_info=True)
                     pdf_buf = None
 
-            # Try academics.views (current known location) as a fallback
             if pdf_buf is None:
                 try:
                     from academics.views import generate_syllabus_pdf_buffer as _acad_gen
@@ -739,7 +750,6 @@ def generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc=None):
             messages.error(request, "Internal error: PDF generator missing. Please contact admin.")
             return redirect('facultymodule:faculty_dashboard')
 
-        # ensure it's a BytesIO-like object
         if isinstance(pdf_buf, (bytes, bytearray)):
             pdf_bytes = bytes(pdf_buf)
         else:
@@ -753,92 +763,49 @@ def generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc=None):
         messages.error(request, "Failed to generate PDF.")
         return redirect('facultymodule:faculty_dashboard')
 
-    # --- 2) Defensive save to hod.FacultySyllabusPDF (non-fatal) ---
-    try:
-        FacultySyllabusPDF = None
+    # --- 2) Optionally save a copy for HOD review (ONLY when explicitly requested by faculty) ---
+    if save_pdf:
         try:
             FacultySyllabusPDF = apps.get_model('hod', 'FacultySyllabusPDF')
-        except LookupError:
-            FacultySyllabusPDF = None
-
-        if FacultySyllabusPDF:
-            # determine branch/year/sem heuristics (same logic as before)
-            branch_obj = None
-            year_val = None
-            sem_val = None
-
-            if course_alloc is not None:
-                branch_obj = getattr(course_alloc, 'branch', None)
-                year_val = getattr(course_alloc, 'admission_year', None) or getattr(course_alloc, 'year', None)
-                sem_val = getattr(course_alloc, 'semester', None)
-
-            try:
-                # try to use any CourseAllocation model if present in project
-                ca = None
+            if FacultySyllabusPDF:
+                fpdf = FacultySyllabusPDF()
+                # Determine branch if CourseAllocation and HODAssignment are available
+                branch = None
                 try:
-                    # try common app names - adjust if you know the exact app
-                    from academica.models import CourseAllocation as _CA
+                    if course_alloc and getattr(course_alloc, 'hod_assignment', None):
+                        branch = getattr(course_alloc.hod_assignment, 'branch', None)
                 except Exception:
-                    _CA = None
-                if _CA:
-                    try:
-                        ca = _CA.objects.filter(course_code=getattr(course, 'course_code', None)).first()
-                    except Exception:
-                        ca = None
+                    branch = None
+                if not branch and hasattr(course, 'branch'):
+                    branch = getattr(course, 'branch', None)
 
-                if ca:
-                    branch_obj = branch_obj or getattr(ca, 'branch', None)
-                    year_val = year_val or getattr(ca, 'admission_year', None) or getattr(ca, 'year', None)
-                    sem_val = sem_val or getattr(ca, 'semester', None)
-            except Exception:
-                pass
+                fpdf.branch = branch
+                fpdf.course = course
+                fpdf.created_by = getattr(request, 'user', None)
+                # fill in year/semester if present on the course
+                try:
+                    fpdf.year = str(getattr(course, 'admission_year', '') or '')
+                except Exception:
+                    pass
+                try:
+                    fpdf.semester = str(getattr(course, 'semester', '') or '')
+                except Exception:
+                    pass
+                fpdf.title = f"{getattr(course, 'course_code', 'syllabus')}_syllabus"
+                fpdf.approved = False
+                fpdf.rejected = False
 
-            branch_obj = branch_obj or getattr(course, 'branch', None) or None
+                # Save file content
+                filename = f"{getattr(course, 'course_code', 'syllabus')}_syllabus_{timezone.now().strftime('%Y%m%d%H%M%S')}.pdf"
+                fpdf.pdf_file.save(filename, ContentFile(pdf_bytes))
+                fpdf.save()
+                messages.success(request, "Generated PDF saved for HOD review.")
+        except Exception as e:
+            logger.exception("Failed to save generated PDF (non-fatal): %s", e)
+            messages.warning(request, "Failed to save generated PDF. The PDF was still generated for download.")
 
-            try:
-                posted_year = request.POST.get('year') if request and hasattr(request, 'POST') else None
-                posted_sem = request.POST.get('semester') if request and hasattr(request, 'POST') else None
-                if posted_year:
-                    year_val = posted_year
-                if posted_sem:
-                    sem_val = posted_sem
-            except Exception:
-                pass
-
-            filename = f"{getattr(course, 'course_code', 'syllabus')}_{timezone.now().strftime('%Y%m%d%H%M%S')}.pdf"
-
-            desired_kwargs = {
-                'branch': branch_obj,
-                'year': str(year_val) if year_val is not None else '',
-                'semester': str(sem_val) if sem_val is not None else (str(getattr(course, 'semester', '') or '')),
-                'created_by': (request.user if hasattr(request, 'user') else None),
-                'course': course,
-                'title': getattr(course, 'course_title', '') or getattr(course, 'course_code', 'Syllabus'),
-                'approved': False,
-                'rejected': False,
-            }
-
-            model_field_names = {f.name for f in FacultySyllabusPDF._meta.get_fields() if getattr(f, 'concrete', False)}
-            safe_kwargs = {k: v for k, v in desired_kwargs.items() if k in model_field_names}
-            pdf_row = FacultySyllabusPDF.objects.create(**safe_kwargs)
-
-            filefield_name = None
-            for candidate in ('pdf_file', 'file', 'pdf', 'document'):
-                if candidate in model_field_names:
-                    filefield_name = candidate
-                    break
-
-            if filefield_name:
-                getattr(pdf_row, filefield_name).save(filename, ContentFile(pdf_bytes))
-                pdf_row.save()
-
-            logger.info("Saved faculty-generated PDF to FacultySyllabusPDF (pk=%s)", getattr(pdf_row, 'pk', 'n/a'))
-    except Exception as e:
-        logger.exception("Failed to save faculty PDF (non-fatal): %s", e)
-
-    # --- 3) Return PDF for download (final) ---
+    # --- 3) Return PDF for inline display / download ---
     try:
-        # Prefer inline display so the browser can open the PDF. Also works as a download if user chooses.
         response = HttpResponse(pdf_bytes, content_type='application/pdf')
         response['Content-Disposition'] = f'inline; filename="{getattr(course, "course_code", "syllabus")}_syllabus.pdf"'
         return response
@@ -850,27 +817,14 @@ def generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc=None):
 
 @login_required
 def view_syllabus(request, course_allocation_id):
-    """Render the saved syllabus in a read-only HTML page.
+    """Redirect to the Add / Edit Syllabus form so faculty can enter or edit the syllabus directly.
 
-    This is intended for faculty to "view as is" without entering the edit form.
+    Previously this rendered a read-only page; user preference is to open the editor directly.
     """
-    import json
     try:
-        ca = get_object_or_404(CourseAllocation, pk=course_allocation_id)
-        CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
-        Syllabus = apps.get_model('academics', 'Syllabus')
+        return redirect('facultymodule:add_syllabus', course_allocation_id)
     except Exception:
-        messages.error(request, "Required models not available.")
-        return redirect('facultymodule:faculty_dashboard')
-
-    course = CollegeLevelCourse.objects.filter(course_code=getattr(ca, 'course_code', None)).first()
-    if not course:
-        messages.error(request, "No course record found for this allocation.")
-        return redirect('facultymodule:faculty_dashboard')
-
-    syllabus = Syllabus.objects.filter(course=course).first()
-    if not syllabus:
-        messages.error(request, "No syllabus found for this course.")
+        messages.error(request, "Unable to open the syllabus editor.")
         return redirect('facultymodule:faculty_dashboard')
 
     # Build display lists (same structure used by edit form)

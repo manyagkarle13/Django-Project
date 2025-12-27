@@ -176,11 +176,7 @@
                   <td>{{ fa.assigned_on|date:"d M Y H:i" }}</td>
                   <td style="text-align:center;">
                     <div style="display:flex;gap:8px;justify-content:center;align-items:center;">
-                    {% if fa.has_syllabus %}
-                      <a href="{% url 'facultymodule:view_syllabus' fa.course_allocation.id %}" class="btn" style="padding:6px 12px;font-size:12px;background:var(--mce-blue);">View Syllabus</a>
-                    {% else %}
-                      <a href="{% url 'facultymodule:add_syllabus' fa.course_allocation.id %}" class="btn" style="padding:6px 12px;font-size:12px;background:var(--mce-blue);">Add Syllabus</a>
-                    {% endif %}
+                      <a href="{% url 'facultymodule:add_syllabus' fa.course_allocation.id %}" class="btn" style="padding:6px 12px;font-size:12px;background:var(--mce-blue);">Add / Edit Syllabus</a>
                     {% if fa.has_pdf %}
                       {% if fa.pdf_url %}
                         <a href="{{ fa.pdf_url }}" target="_blank" class="btn" style="padding:6px 10px;font-size:12px;background:#2e7d32;">View PDF</a>

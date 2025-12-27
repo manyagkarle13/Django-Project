@@ -454,6 +454,13 @@
         
         <button class="btn" type="submit" onclick="document.getElementById('action').value='save_only'" style="background:#b72b3f;color:#fff;padding:10px 18px;border-radius:6px;border:0;font-size:16px;cursor:pointer;">Save Syllabus</button>
         
+        <label style="margin-left:18px; display:inline-flex; align-items:center; gap:8px;">
+          {% if is_faculty %}
+            <input type="checkbox" name="save_pdf" value="1" id="id_save_pdf" />
+            <span style="font-size:0.95em;color:#333;">Save generated PDF to server (for HOD review)</span>
+          {% endif %}
+        </label>
+
         <button class="btn" type="submit" onclick="document.getElementById('action').value='generate_pdf'" style="background:#b72b3f;color:#fff;padding:10px 18px;border-radius:6px;border:0;margin-left:12px;font-size:16px;cursor:pointer;">Generate PDF</button>
         
         <a href="{% url 'academics:syllabus_list' %}" style="margin-left:30px;color:#123e77;text-decoration:underline;font-size:14px;">Cancel / Back</a>

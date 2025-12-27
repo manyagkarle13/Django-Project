@@ -131,6 +131,7 @@
         <th style="border:1px solid #ddd;padding:10px;text-align:left;">Code</th>
         <th style="border:1px solid #ddd;padding:10px;text-align:left;">Title</th>
         <th style="border:1px solid #ddd;padding:10px;text-align:left;">Category</th>
+        <th style="border:1px solid #ddd;padding:10px;text-align:left;">Admission Year</th>
         <th style="border:1px solid #ddd;padding:10px;text-align:left;">Semester</th>
         <th style="border:1px solid #ddd;padding:10px;text-align:center;">Actions</th>
       </tr>
@@ -141,6 +142,7 @@
           <td style="border:1px solid #ddd;padding:10px;">{{ course.course_code }}</td>
           <td style="border:1px solid #ddd;padding:10px;">{{ course.course_title }}</td>
           <td style="border:1px solid #ddd;padding:10px;">{{ course.course_category }}</td>
+          <td style="border:1px solid #ddd;padding:10px;">{{ course.admission_year|default:"—" }}</td>
           <td style="border:1px solid #ddd;padding:10px;">{{ course.display_semester|default:"-" }}</td>
           <td style="border:1px solid #ddd;padding:10px;text-align:center;">
             {% if not show_deleted %}
@@ -159,7 +161,7 @@
           </td>
         </tr>
       {% empty %}
-        <tr><td colspan="5" style="text-align:center;padding:20px;">No courses found.</td></tr>
+        <tr><td colspan="6" style="text-align:center;padding:20px;">No courses found.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -209,6 +211,7 @@
       <tr style="background:#f4f6f8;">
         <th style="border:1px solid #ddd;padding:10px;text-align:left;">Course</th>
         <th style="border:1px solid #ddd;padding:10px;text-align:left;">Generated</th>
+        <th style="border:1px solid #ddd;padding:10px;text-align:left;">Admission Year</th>
         <th style="border:1px solid #ddd;padding:10px;text-align:left;">Semester</th>
         <th style="border:1px solid #ddd;padding:10px;text-align:center;">Actions</th>
       </tr>
@@ -224,6 +227,7 @@
             {% endif %}
           </td>
           <td style="border:1px solid #ddd;padding:10px;">{% if s.created_on %}{{ s.created_on|date:"d M Y, H:i" }}{% else %}-{% endif %}</td>
+          <td style="border:1px solid #ddd;padding:10px;">{{ s.display_admission_year|default:'—' }}</td>
           <td style="border:1px solid #ddd;padding:10px;">{{ s.display_semester }}</td>
           <td style="border:1px solid #ddd;padding:10px;text-align:center;">
             {% if not show_deleted and s.course %}
