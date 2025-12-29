@@ -24,6 +24,9 @@ class CombinedPDFTest(TestCase):
             semester=1,
             admission_year='2025'
         )
+        # attach a syllabus_pdf file directly to the course (represents Dean-provided file)
+        self.dean_course.syllabus_pdf.save('dean_course.pdf', ContentFile(b'%PDF-1.4\n%EOF'))
+        self.dean_course.save()
 
         FacultySyllabusPDF = apps.get_model('hod', 'FacultySyllabusPDF')
 
@@ -39,13 +42,21 @@ class CombinedPDFTest(TestCase):
         self.dean_sub.pdf_file.save('dean.pdf', ContentFile(b'%PDF-1.4\n%EOF'))
         self.dean_sub.save()
 
-        # create a faculty-approved submission (not dean course)
+        # create a faculty submission linked to a branch-specific course and save a PDF
+        self.branch_course = CollegeLevelCourse.objects.create(
+            course_category='CSE',
+            course_code='CSE101',
+            course_title='Branch Course',
+            semester=1,
+            admission_year='2025',
+            branch=self.branch,
+        )
         self.fac_sub = FacultySyllabusPDF.objects.create(
             branch=self.branch,
             year='2025',
             semester='1',
             approved=True,
-            course=None,
+            course=self.branch_course,
         )
         self.fac_sub.pdf_file.save('fac.pdf', ContentFile(b'%PDF-1.4\n%EOF'))
         self.fac_sub.save()
@@ -58,8 +69,25 @@ class CombinedPDFTest(TestCase):
         data = {
             'year': '2025',
             'semester': '1',
-            'submissions': [str(self.fac_sub.pk)],
+            # Choose the dean course file explicitly and the faculty submission
+            'dean_course_ids': [str(self.dean_course.pk)],
+            'latest_submissions': [str(self.fac_sub.pk)],
         }
         response = self.client.post(url, data)
         self.assertEqual(response.status_code, 200)
         self.assertIn('application/pdf', response['Content-Type'])
+        # The generated response should be an attachment PDF
+        self.assertIn('attachment; filename', response.get('Content-Disposition', ''))
+
+    def test_create_combined_page_shows_selection_options(self):
+        """Create combined syllabus page should render options to select dean course PDFs and latest faculty PDFs."""
+        url = reverse('hod:create_combined_syllabus', args=[self.branch.pk]) + '?year=2025&semester=1'
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        content = resp.content.decode('utf-8')
+        # Deprecated message should not be present
+        self.assertNotIn('No approved PDFs found for the selected filters.', content)
+        # Dean course checkbox label should appear
+        self.assertIn('Dean course PDFs', content)
+        # Latest faculty section should appear
+        self.assertIn('Latest faculty-generated PDF per course', content)

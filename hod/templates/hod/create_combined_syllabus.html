@@ -1,40 +1,119 @@
-{% extends "base.html" %}
-{% block content %}
-<h2>Create Combined Syllabus</h2>
-<form method="post" action="{% if branch %}{% url 'hod:generate_combined_syllabus' branch.pk %}{% elif branch_pk %}{% url 'hod:generate_combined_syllabus' branch_pk %}{% else %}{{ request.path }}{% endif %}">
-  {% csrf_token %}
-  <input type="hidden" name="year" value="{{ year }}">
-  <input type="hidden" name="semester" value="{{ semester }}">
-
-  <div class="mb-3">
-    <label class="form-label">Include HOD Scheme (optional)</label>
-    <div class="input-group">
-      <div class="input-group-text">
-        <input type="checkbox" name="include_hod" id="include_hod">
+{% load static %}
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Create Combined Syllabus — {{ branch.name|default:"HOD" }}</title>
+  <style>
+    body { font-family: Arial, sans-serif; background:#f6f7f8; color:#222; padding:18px; }
+    .card { background:#fff; border-radius:8px; padding:20px; box-shadow:0 2px 4px rgba(0,0,0,0.08); margin-bottom:20px; }
+    h1 { margin:0 0 6px; color:#0a3b66; font-size:1.25rem; }
+    .section-subtitle { color:#666; font-size:0.9rem; margin-bottom:12px; }
+    table { width:100%; border-collapse:collapse; margin:12px 0; }
+    th { background:#8ADBE9; color:white; padding:10px; text-align:left; font-weight:bold; }
+    td { padding:10px; border-bottom:1px solid #eee; }
+    .btn { display:inline-block; padding:8px 12px; background:#1e88e5; color:white; text-decoration:none; border-radius:4px; border:none; cursor:pointer; }
+    .btn-secondary { background:#6c757d; }
+    .empty-state { color:#999; font-style:italic; padding:12px; text-align:center; }
+    .muted { color:#666; font-size:0.9rem; }
+    label.inline { display:flex; align-items:center; gap:8px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <div>
+        <h1>Create Combined Syllabus</h1>
+        {% if year and semester %}
+          <div class="section-subtitle">Showing options for Year {{ year }}, Semester {{ semester }}</div>
+        {% else %}
+          <div class="section-subtitle">Select items to include in the merged PDF</div>
+        {% endif %}
       </div>
-      <select name="scheme_id" class="form-select">
-        <option value="">-- choose scheme to include --</option>
-        {% for s in schemes %}
-          <option value="{{ s.pk }}">{{ s.branch_name }} - {{ s.title }} ({{ s.year }} Sem{{ s.semester }})</option>
-        {% endfor %}
-      </select>
+      <div>
+        {% if branch %}
+          <a href="{% url 'hod:dashboard_self' branch.pk %}" class="btn btn-secondary">&larr; Back</a>
+        {% else %}
+          <a href="{% url 'hod:dashboard_redirect' %}" class="btn btn-secondary">&larr; Back</a>
+        {% endif %}
+      </div>
     </div>
+
+    <form method="post" action="{% if branch %}{% url 'hod:generate_combined_syllabus' branch.pk %}{% elif branch_pk %}{% url 'hod:generate_combined_syllabus' branch_pk %}{% else %}{{ request.path }}{% endif %}">
+      {% csrf_token %}
+      <input type="hidden" name="year" value="{{ year }}">
+      <input type="hidden" name="semester" value="{{ semester }}">
+
+      <h3 style="margin-top:12px;">HOD scheme (included)</h3>
+      <div class="muted">The latest HOD scheme for the selected year/semester will be included automatically.</div>
+      <div style="margin:12px 0 18px;">
+        {% if latest_scheme %}
+          <div><strong>{{ latest_scheme.title }}</strong> — {{ latest_scheme.year }} Sem{{ latest_scheme.semester }}</div>
+          <div class="small text-muted">Generated on {{ latest_scheme.created_at|date:"d M Y, g:i a" }}</div>
+        {% else %}
+          <div class="empty-state">No HOD scheme found for the selected filters; a placeholder page will be used if no other PDFs are available.</div>
+        {% endif %}
+      </div>
+
+      <h3>Dean course PDFs (included)</h3>
+      <div class="muted">Dean-provided college-level course PDFs are included automatically for the selected year/semester.</div>
+      {% if dean_courses %}
+        <table>
+          <thead>
+            <tr><th>Course Code</th><th>Title</th><th>Has File</th></tr>
+          </thead>
+          <tbody>
+            {% for course in dean_courses %}
+              <tr>
+                <td style="font-weight:700">{{ course.course_code }}</td>
+                <td>{{ course.course_title }}</td>
+                <td>{% if course.syllabus_pdf and course.syllabus_pdf.name %}Yes{% else %}No{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty-state">No dean course PDFs available for the selected filters.</div>
+      {% endif %}
+
+      <h3 style="margin-top:18px;">Latest faculty-generated PDF per course</h3>
+      <div class="muted">Prefer the most recent faculty submission for each course when available.</div>
+      {% if latest_faculty_list %}
+        <div style="margin:8px 0 12px;"><button type="button" class="btn" onclick="toggleAllLatest()">Select/Unselect All</button></div>
+        <table>
+          <thead>
+            <tr><th>Include</th><th>Course</th><th>Submitted By</th><th>Submitted On</th><th>Approved</th></tr>
+          </thead>
+          <tbody>
+            {% for p in latest_faculty_list %}
+              <tr>
+                <td><input type="checkbox" name="latest_submissions" value="{{ p.pk }}"></td>
+                <td style="font-weight:700">{{ p.course.course_code }} — {{ p.course.course_title }}</td>
+                <td>{% if p.created_by %}{{ p.created_by.get_full_name|default:p.created_by.username }}{% else %}Unknown{% endif %}</td>
+                <td>{{ p.created_at|date:"d M Y, g:i a" }}</td>
+                <td>{% if p.approved %}Yes{% else %}No{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty-state">No latest faculty submissions found for the selected year/semester.</div>
+      {% endif %}
+
+      <div style="margin-top:18px;text-align:right;">
+        <button class="btn btn-secondary" type="button" onclick="location.href='{% if branch %}{% url 'hod:dashboard_self' branch.pk %}{% else %}{% url 'hod:dashboard_redirect' %}{% endif %}'">Back</button>
+        <button class="btn" type="submit" style="margin-left:8px;">Generate Combined PDF</button>
+      </div>
+
+    </form>
   </div>
 
-  <h4>Approved Faculty PDFs</h4>
-  {% if approved_pdfs %}
-    {% for p in approved_pdfs %}
-      <div class="form-check">
-        <input class="form-check-input" type="checkbox" name="submissions" value="{{ p.pk }}" id="submission_{{ p.pk }}">
-        <label class="form-check-label" for="submission_{{ p.pk }}">
-          {% if p.course %}{{ p.course.course_code }}{% else %}{{ p.title }}{% endif %} — {% if p.course %}{{ p.course.course_title }}{% else %}{{ p.title }}{% endif %} — {{ p.created_by.get_full_name|default:p.created_by.username }} — Uploaded {{ p.created_at|date:"M j, Y, g:i a" }}
-        </label>
-      </div>
-    {% endfor %}
-  {% else %}
-    <p>No approved PDFs found for the selected filters.</p>
-  {% endif %}
-
-  <button class="btn btn-primary mt-3" type="submit">Generate Complete PDF</button>
-</form>
-{% endblock %}
+  <script>
+    function toggleAllLatest() {
+      const cbs = document.querySelectorAll('input[name="latest_submissions"]');
+      const any = Array.from(cbs).some(c => c.checked);
+      cbs.forEach(c=>c.checked = !any);
+    }
+  </script>
+</body>
+</html>

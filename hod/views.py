@@ -130,8 +130,10 @@ def _build_scheme_pdf_bytes(branch, year, semester, main_rows=None, elective_row
         main_rows = []
         try:
             CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
-            # ONLY fetch college-wide dean courses (department="All Branches")
-            dean_qs = CollegeLevelCourse.objects.filter(department="All Branches", is_deleted=False, branch__isnull=True)
+            # Fetch dean courses: include college-wide (branch is null) or those assigned to this branch
+            dean_qs = CollegeLevelCourse.objects.filter(department="All Branches", is_deleted=False).filter(
+                Q(branch__isnull=True) | Q(branch=branch)
+            )
             # filter by semester only if model has that field
             if hasattr(CollegeLevelCourse, 'semester'):
                 try:
@@ -364,8 +366,10 @@ def _fetch_db_rows_for_scheme(branch, year, semester):
     # Dean courses (CollegeLevelCourse)
     try:
         CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
-        # ONLY fetch college-wide dean courses (department="All Branches")
-        dean_qs = CollegeLevelCourse.objects.filter(department="All Branches", is_deleted=False, branch__isnull=True)
+        # Fetch dean courses: include college-wide (branch is null) or those assigned to this branch
+        dean_qs = CollegeLevelCourse.objects.filter(department="All Branches", is_deleted=False).filter(
+            Q(branch__isnull=True) | Q(branch=branch)
+        )
         # filter by semester only if model has that field
         if hasattr(CollegeLevelCourse, 'semester'):
             try:
@@ -566,8 +570,10 @@ def dashboard(request, branch_pk=None):
             # safe dean course queryset for branch or college-wide
             # Filter by year and semester if model supports these fields
             try:
-                # ONLY fetch college-wide dean courses (department="All Branches")
-                dean_qs = CollegeLevelCourse.objects.filter(department="All Branches", is_deleted=False, branch__isnull=True)
+                # Fetch dean courses for this branch/year/semester (college-wide or branch-specific)
+                dean_qs = CollegeLevelCourse.objects.filter(department="All Branches", is_deleted=False).filter(
+                    Q(branch__isnull=True) | Q(branch=branch)
+                )
                 # if model has semester field, filter by sem
                 if hasattr(CollegeLevelCourse, 'semester'):
                     try:
@@ -953,8 +959,10 @@ def create_scheme_form(request, branch_pk, year, semester):
     
     # safe dean course queryset for branch or college-wide
     try:
-        # ONLY fetch college-wide dean courses (department="All Branches")
-        dean_qs = Course.objects.filter(department="All Branches", is_deleted=False, branch__isnull=True)
+        # Fetch dean courses for this branch/year/semester (college-wide or branch-specific)
+        dean_qs = Course.objects.filter(department="All Branches", is_deleted=False).filter(
+            Q(branch__isnull=True) | Q(branch=branch)
+        )
         # if model has semester field, filter by sem
         if hasattr(Course, 'semester'):
             try:
@@ -1043,8 +1051,10 @@ def generate_pdf_view(request, branch_pk, year, semester):
     dean_rows = []
     try:
         CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
-        # ONLY fetch college-wide dean courses (department="All Branches")
-        dean_qs = CollegeLevelCourse.objects.filter(department="All Branches", is_deleted=False, branch__isnull=True)
+        # Fetch dean courses for this branch/year/semester (college-wide or branch-specific)
+        dean_qs = CollegeLevelCourse.objects.filter(department="All Branches", is_deleted=False).filter(
+            Q(branch__isnull=True) | Q(branch=branch)
+        )
         # filter by semester only if model has that field
         if hasattr(CollegeLevelCourse, 'semester'):
             try:
@@ -2442,8 +2452,9 @@ def create_combined_syllabus(request, branch_pk):
     year = request.GET.get('year', '').strip()
     semester = request.GET.get('semester', '').strip()
     
-    # Get available schemes for this branch/year/semester
+    # Get available schemes for this branch/year/semester and pick the latest one to include automatically
     schemes = []
+    latest_scheme = None
     try:
         SchemeDocument = apps.get_model('hod', 'SchemeDocument')
         scheme_qs = SchemeDocument.objects.filter(branch=branch, is_deleted=False)
@@ -2458,29 +2469,73 @@ def create_combined_syllabus(request, branch_pk):
             except ValueError:
                 pass
         schemes = scheme_qs.order_by('-created_at')
+        latest_scheme = schemes.first() if schemes else None
     except LookupError:
         pass
     
-    # Get approved faculty PDFs for this branch/year/semester
-    approved_pdfs = []
+    # Build latest faculty-generated PDF per course (one latest per course)
+    latest_faculty_list = []
+    dean_courses_with_pdf = []
+    # Only expose faculty-generated PDFs to users who are actual HODs (hide from Dean/staff views)
+    if getattr(request.user, 'hod_assignment', None):
+        try:
+            FacultySyllabusPDF = apps.get_model('hod', 'FacultySyllabusPDF')
+            pdf_qs = FacultySyllabusPDF.objects.filter(branch=branch)
+            if year:
+                pdf_qs = pdf_qs.filter(year=str(year))
+            if semester:
+                pdf_qs = pdf_qs.filter(semester=str(semester))
+            try:
+                latest_qs = pdf_qs.select_related('course', 'created_by').order_by('course_id', '-created_at')
+                latest_map = {}
+                for p in latest_qs:
+                    cid = getattr(p, 'course_id', None)
+                    if cid and cid not in latest_map:
+                        latest_map[cid] = p
+                latest_faculty_list = [latest_map[cid] for cid in sorted(latest_map.keys())]
+            except Exception:
+                latest_faculty_list = []
+        except LookupError:
+            latest_faculty_list = []
+
+    # Get dean college-level courses that may have a `syllabus_pdf` file to include
     try:
-        FacultySyllabusPDF = apps.get_model('hod', 'FacultySyllabusPDF')
-        pdf_qs = FacultySyllabusPDF.objects.filter(branch=branch, approved=True)
-        if year:
-            pdf_qs = pdf_qs.filter(year=str(year))
-        if semester:
-            pdf_qs = pdf_qs.filter(semester=str(semester))
-        approved_pdfs = pdf_qs.select_related('created_by', 'course', 'branch').order_by('-created_at')
+        CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
+        dean_courses_qs = CollegeLevelCourse.objects.filter(department="All Branches", is_deleted=False).filter(
+            Q(branch__isnull=True) | Q(branch=branch)
+        )
+        if semester and hasattr(CollegeLevelCourse, 'semester'):
+            try:
+                dean_courses_qs = dean_courses_qs.filter(semester=semester)
+            except Exception:
+                pass
+        # strict year/admission_year filter if available
+        for year_field in ['admission_year', 'year', 'academic_year']:
+            if hasattr(CollegeLevelCourse, year_field) and year not in (None, '', 0):
+                try:
+                    dean_courses_qs = dean_courses_qs.filter(**{year_field: int(year)})
+                except Exception:
+                    try:
+                        dean_courses_qs = dean_courses_qs.filter(**{year_field: str(year)})
+                    except Exception:
+                        pass
+                break
+        # Include all dean courses (branch-wide or branch-specific); mark files as present or not in template
+        dean_courses = []
+        for course in dean_courses_qs.order_by('course_code'):
+            dean_courses.append(course)
     except LookupError:
         pass
-    
+
     context = {
         'branch': branch,
         'branch_pk': branch_pk,
         'year': year,
         'semester': semester,
         'schemes': schemes,
-        'approved_pdfs': approved_pdfs,
+        'latest_scheme': latest_scheme,
+        'latest_faculty_list': latest_faculty_list,
+        'dean_courses': dean_courses,
     }
     return render(request, 'hod/create_combined_syllabus.html', context)
 
@@ -2494,37 +2549,18 @@ def generate_combined_syllabus(request, branch_pk):
         year = request.POST.get('year', '').strip()
         semester = request.POST.get('semester', '').strip()
         
-        # Check if HOD scheme should be included
-        include_hod = request.POST.get('include_hod') == 'on' or request.POST.get('include_hod') == '1'
-        scheme_id = request.POST.get('scheme_id', '').strip()
+        # HOD scheme and dean course PDFs are included automatically (no form selection required)
+        include_hod = True
+        scheme_id = None
         
-        # Get selected submission IDs (in POST order). It's OK if empty;
-        # dean-approved PDFs or an included HOD scheme may still be merged.
-        submission_ids = request.POST.getlist('submissions')
-        
+        # We no longer support selecting arbitrary approved faculty PDFs for merging.
+        # Selections are limited to 'Dean course PDFs' and 'Latest faculty-generated PDF per course'.
         # Import PyPDF2 for PDF merging
         try:
             from PyPDF2 import PdfMerger
         except ImportError:
             messages.error(request, "PyPDF2 library required for PDF merging. Install with: pip install PyPDF2")
             return redirect('hod:create_combined_syllabus', branch_pk=branch_pk)
-        
-        # Validate and get approved submissions in POST order (may end up empty)
-        FacultySyllabusPDF = apps.get_model('hod', 'FacultySyllabusPDF')
-        valid_submissions = []
-        for sub_id in submission_ids:
-            try:
-                # Build filter kwargs to avoid passing None values
-                fk = {'pk': sub_id, 'branch': branch, 'approved': True}
-                if year:
-                    fk['year'] = str(year)
-                if semester:
-                    fk['semester'] = str(semester)
-                submission = FacultySyllabusPDF.objects.get(**fk)
-                valid_submissions.append(submission)
-            except (FacultySyllabusPDF.DoesNotExist, ValueError):
-                messages.warning(request, f"Invalid submission ID: {sub_id}")
-                continue
         
         # Merge PDFs using PyPDF2.PdfMerger (preserves POST order)
         try:
@@ -2533,34 +2569,48 @@ def generate_combined_syllabus(request, branch_pk):
             # Keep track of file paths already appended to avoid duplicates
             appended_paths = set()
 
-            # Add HOD scheme PDF first if checkbox checked
-            if include_hod and scheme_id:
-                try:
-                    SchemeDocument = apps.get_model('hod', 'SchemeDocument')
-                    scheme = SchemeDocument.objects.get(pk=scheme_id, branch=branch)
-                    if scheme.pdf_file and os.path.exists(scheme.pdf_file.path):
-                        path = scheme.pdf_file.path
-                        if path not in appended_paths:
-                            merger.append(path)
-                            appended_paths.add(path)
-                except Exception as e:
-                    logger.exception("Error adding scheme PDF: %s", e)
-                    messages.warning(request, f"Could not add scheme PDF: {e}")
+            # Add latest HOD scheme PDF first (mandatory if present)
+            try:
+                SchemeDocument = apps.get_model('hod', 'SchemeDocument')
+                scheme_qs = SchemeDocument.objects.filter(branch=branch, is_deleted=False).order_by('-created_at')
+                if year:
+                    try:
+                        scheme_qs = scheme_qs.filter(year=int(year))
+                    except Exception:
+                        pass
+                if semester:
+                    try:
+                        scheme_qs = scheme_qs.filter(semester=int(semester))
+                    except Exception:
+                        pass
+                scheme = scheme_qs.first()
+                if scheme and getattr(scheme, 'pdf_file', None) and os.path.exists(scheme.pdf_file.path):
+                    path = scheme.pdf_file.path
+                    if path not in appended_paths:
+                        merger.append(path)
+                        appended_paths.add(path)
+            except LookupError:
+                scheme = None
+            except Exception as e:
+                logger.exception("Error adding latest scheme PDF: %s", e)
+                messages.warning(request, f"Could not add scheme PDF: {e}")
 
-            # Add dean-approved submissions (one latest per dean-course)
+            # Add dean course PDFs (mandatory for inclusion if they have files and match filters)
             try:
                 CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
+            except LookupError:
+                CollegeLevelCourse = None
+            if CollegeLevelCourse:
                 dean_courses_qs = CollegeLevelCourse.objects.filter(
-                    department="All Branches",  # Only college-level courses
+                    department="All Branches",
                     is_deleted=False,
                     branch__isnull=True,
-                )
+                ).order_by('course_code')
                 if semester and hasattr(CollegeLevelCourse, 'semester'):
                     try:
                         dean_courses_qs = dean_courses_qs.filter(semester=semester)
                     except Exception:
                         pass
-                # filter by admission_year if model supports it and we have 'year' (STRICT match)
                 for year_field in ['admission_year', 'year', 'academic_year']:
                     if hasattr(CollegeLevelCourse, year_field) and year not in (None, '', 0):
                         try:
@@ -2572,124 +2622,95 @@ def generate_combined_syllabus(request, branch_pk):
                                 pass
                         break
 
-                dean_sub_qs = FacultySyllabusPDF.objects.filter(
-                    branch=branch,
-                    approved=True,
-                    course__in=dean_courses_qs,
-                )
-                if year:
-                    dean_sub_qs = dean_sub_qs.filter(year=str(year))
-                if semester:
-                    dean_sub_qs = dean_sub_qs.filter(semester=str(semester))
-
-                # order by course then newest first
-                dean_sub_qs = dean_sub_qs.select_related('course').order_by('course_id', '-approved_at', '-created_at')
-                latest_dean_per_course = {}
-                for sub in dean_sub_qs:
-                    cid = sub.course_id
-                    if cid and cid not in latest_dean_per_course:
-                        latest_dean_per_course[cid] = sub
-
-                # append dean PDFs in deterministic order (course code)
-                # First, include any syllabus_pdf attached directly to the CollegeLevelCourse
-                # (this represents a dean-provided syllabus file stored on the course itself).
-                # Iterate dean courses in course_code order for determinism.
-                for course in dean_courses_qs.order_by('course_code'):
+                for course in dean_courses_qs:
                     try:
-                        if getattr(course, 'syllabus_pdf', None) and hasattr(course.syllabus_pdf, 'path') and os.path.exists(course.syllabus_pdf.path):
-                            path = course.syllabus_pdf.path
-                            if path not in appended_paths:
-                                try:
-                                    merger.append(path)
-                                    appended_paths.add(path)
-                                except Exception as e:
-                                    try:
-                                        size = os.path.getsize(path)
-                                    except Exception:
-                                        size = None
-                                        logger.exception("Error adding course syllabus_pdf for %s (path=%s, size=%s): %s", course.course_code, path, size, e)
-                                        messages.warning(request, f"Could not add course syllabus for {course.course_code}: {e}")
-                                        # Try to append a small placeholder PDF so merging can continue in tests
-                                        try:
-                                            from io import BytesIO
-                                            from reportlab.pdfgen import canvas
-                                            tmp = BytesIO()
-                                            c = canvas.Canvas(tmp)
-                                            c.drawString(50, 800, "Placeholder: unreadable syllabus PDF")
-                                            c.showPage()
-                                            c.save()
-                                            tmp.seek(0)
-                                            merger.append(tmp)
-                                            appended_paths.add(path)
-                                            logger.warning("Appended placeholder PDF for unreadable course file: %s", path)
-                                        except Exception:
-                                            logger.exception("Failed to append placeholder PDF for %s", path)
-                    except Exception:
-                        # Defensive: skip problematic course entries
-                        continue
-
-                for cid, sub in sorted(latest_dean_per_course.items(), key=lambda x: (getattr(x[1].course, 'course_code', '') if x[1].course else '')):
-                    if sub.pdf_file and os.path.exists(sub.pdf_file.path):
-                        path = sub.pdf_file.path
-                        if path not in appended_paths:
+                        pdf_field = getattr(course, 'syllabus_pdf', None)
+                        # If a dean course has an attached PDF file that exists on disk, append it
+                        if pdf_field and hasattr(pdf_field, 'path') and os.path.exists(pdf_field.path):
+                            path = pdf_field.path
+                            if path in appended_paths:
+                                continue
                             try:
                                 merger.append(path)
                                 appended_paths.add(path)
                             except Exception as e:
-                                try:
-                                    size = os.path.getsize(path)
-                                except Exception:
-                                    size = None
-                                logger.exception("Error adding dean submission PDF (path=%s, size=%s): %s", path, size, e)
-                                messages.warning(request, f"Could not add dean submission PDF: {e}")
+                                logger.exception("Error adding dean course PDF (id=%s): %s", course.pk, e)
+                                messages.warning(request, f"Could not add dean course PDF for {course.course_code}: {e}")
+                                # fallback placeholder for unreadable file
                                 try:
                                     from io import BytesIO
                                     from reportlab.pdfgen import canvas
                                     tmp = BytesIO()
                                     c = canvas.Canvas(tmp)
-                                    c.drawString(50, 800, "Placeholder: unreadable dean PDF")
+                                    c.drawString(50, 800, f"Placeholder: unreadable dean course file (id={course.pk})")
                                     c.showPage()
                                     c.save()
                                     tmp.seek(0)
                                     merger.append(tmp)
-                                    appended_paths.add(path)
-                                    logger.warning("Appended placeholder PDF for unreadable dean file: %s", path)
+                                    appended_paths.add(f"dean_placeholder_{course.pk}")
+                                    logger.warning("Appended placeholder PDF for unreadable dean course file id: %s", course.pk)
                                 except Exception:
-                                    logger.exception("Failed to append placeholder PDF for %s", path)
-            except LookupError:
-                # academics model not present - skip dean PDFs
-                pass
-
-            # Add selected submissions in POST order (skip any already added)
-            for submission in valid_submissions:
-                if submission.pdf_file and os.path.exists(submission.pdf_file.path):
-                    path = submission.pdf_file.path
-                    if path in appended_paths:
+                                    logger.exception("Failed to append placeholder PDF for dean course id %s", course.pk)
+                        else:
+                            # No PDF file attached for this dean course — append a small placeholder indicating the course
+                            try:
+                                from io import BytesIO
+                                from reportlab.pdfgen import canvas
+                                tmp = BytesIO()
+                                c = canvas.Canvas(tmp)
+                                c.drawString(50, 800, f"Placeholder: no dean course PDF for {getattr(course, 'course_code', 'unknown')} - {getattr(course, 'course_title', '')}")
+                                c.showPage()
+                                c.save()
+                                tmp.seek(0)
+                                merger.append(tmp)
+                                appended_paths.add(f"dean_placeholder_{course.pk}")
+                                logger.info("Appended placeholder for dean course with no file: %s", course.pk)
+                            except Exception:
+                                logger.exception("Failed to append placeholder for dean course id %s", course.pk)
+                    except Exception:
                         continue
-                    try:
-                        merger.append(path)
-                        appended_paths.add(path)
-                    except Exception as e:
+
+            # Ensure FacultySyllabusPDF model is available for latest selections
+            try:
+                FacultySyllabusPDF = apps.get_model('hod', 'FacultySyllabusPDF')
+            except LookupError:
+                FacultySyllabusPDF = None
+
+            # Add selected latest faculty PDFs (one per course) — allowed only for HOD users
+            latest_ids = request.POST.getlist('latest_submissions')
+            if latest_ids and FacultySyllabusPDF:
+                if not getattr(request.user, 'hod_assignment', None):
+                    messages.warning(request, "Only HOD users can include faculty-generated PDFs in the combined syllabus.")
+                else:
+                    for lid in latest_ids:
                         try:
-                            size = os.path.getsize(path)
-                        except Exception:
-                            size = None
-                        logger.exception("Error adding submission PDF (path=%s, size=%s): %s", path, size, e)
-                        messages.warning(request, f"Could not add one submission PDF: {e}")
-                        try:
-                            from io import BytesIO
-                            from reportlab.pdfgen import canvas
-                            tmp = BytesIO()
-                            c = canvas.Canvas(tmp)
-                            c.drawString(50, 800, "Placeholder: unreadable submission PDF")
-                            c.showPage()
-                            c.save()
-                            tmp.seek(0)
-                            merger.append(tmp)
-                            appended_paths.add(path)
-                            logger.warning("Appended placeholder PDF for unreadable submission file: %s", path)
-                        except Exception:
-                            logger.exception("Failed to append placeholder PDF for %s", path)
+                            sub = FacultySyllabusPDF.objects.get(pk=lid)
+                            if sub.pdf_file and os.path.exists(sub.pdf_file.path):
+                                path = sub.pdf_file.path
+                                if path not in appended_paths:
+                                    try:
+                                        merger.append(path)
+                                        appended_paths.add(path)
+                                    except Exception as e:
+                                        logger.exception("Error adding latest faculty PDF (id=%s): %s", lid, e)
+                                        messages.warning(request, f"Could not add one latest faculty PDF: {e}")
+                                        try:
+                                            from io import BytesIO
+                                            from reportlab.pdfgen import canvas
+                                            tmp = BytesIO()
+                                            c = canvas.Canvas(tmp)
+                                            c.drawString(50, 800, f"Placeholder: unreadable faculty PDF (id={lid})")
+                                            c.showPage()
+                                            c.save()
+                                            tmp.seek(0)
+                                            merger.append(tmp)
+                                            appended_paths.add(path)
+                                            logger.warning("Appended placeholder PDF for unreadable faculty file: %s", path)
+                                        except Exception:
+                                            logger.exception("Failed to append placeholder PDF for faculty PDF id %s", lid)
+                        except Exception as e:
+                            logger.exception("Error adding latest faculty PDF (id=%s): %s", lid, e)
+                            messages.warning(request, f"Could not add one latest faculty PDF: {e}")
             
             # Create output buffer
             # Ensure we actually appended something
