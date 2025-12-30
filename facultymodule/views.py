@@ -960,6 +960,18 @@ def generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc=None, 
                 try:
                     if hasattr(course, '_meta') or getattr(course, 'pk', None):
                         fpdf.course = course
+                    else:
+                        # Try to resolve a persisted CollegeLevelCourse by course code (use CourseAllocation if available)
+                        try:
+                            CourseModel = apps.get_model('academics', 'CollegeLevelCourse')
+                            code = getattr(course, 'course_code', None) or getattr(course_alloc, 'course_code', None)
+                            if code:
+                                resolved = CourseModel.objects.filter(course_code=code).first()
+                                if resolved:
+                                    fpdf.course = resolved
+                        except Exception:
+                            # if resolution fails, leave course null
+                            pass
                 except Exception:
                     # defensive: leave `course` null if not a model instance
                     pass
@@ -974,7 +986,8 @@ def generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc=None, 
                 except Exception:
                     pass
                 fpdf.title = f"{getattr(course, 'course_code', 'syllabus')}_syllabus"
-                fpdf.approved = False
+                # Auto-accept faculty-generated PDFs (no pending/approval flow)
+                fpdf.approved = True
                 fpdf.rejected = False
 
                 # Save file content
@@ -982,7 +995,7 @@ def generate_faculty_syllabus_pdf(request, course, syllabus, course_alloc=None, 
                 fpdf.pdf_file.save(filename, ContentFile(pdf_bytes))
                 fpdf.save()
                 # simple success message (no inline links shown on faculty dashboard)
-                messages.success(request, "Generated PDF saved for HOD review.")
+                messages.success(request, "Generated PDF saved and will be included in combined syllabi.")
         except Exception as e:
             logger.exception("Failed to save generated PDF (non-fatal): %s", e)
             messages.warning(request, "Failed to save generated PDF. The PDF was still generated for download.")

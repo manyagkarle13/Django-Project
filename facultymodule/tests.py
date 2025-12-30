@@ -1,3 +1,3 @@
-from django.test import TestCase
+# tests moved to package 'facultymodule.tests'.
+# This file was intentionally left blank to avoid unittest discovery conflicts.
 
-# Create your tests here.

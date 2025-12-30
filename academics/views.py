@@ -494,27 +494,11 @@ def generate_syllabus_pdf_buffer(syllabus: Syllabus) -> io.BytesIO:
             ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
         ]))
         elements.append(lab_table)
-        elements.append(Spacer(1, 0.1*inch))
+        elements.append(Spacer(1, 0.04*inch))
 
-    # ===== PAGE BREAK BEFORE ARTICULATION MATRIX =====
-    elements.append(PageBreak())
-
-    # ===== LOGO REPEAT =====
-    try:
-        logo_path = os.path.join(settings.BASE_DIR, 'users/static/images/malnad_college_of_engineering_logo.jpeg')
-        if os.path.exists(logo_path):
-            logo = Image(logo_path, width=0.8*inch, height=0.8*inch)
-            logo.hAlign = 'CENTER'
-            elements.append(logo)
-            elements.append(Spacer(1, 0.05*inch))
-    except Exception as e:
-        logger.debug("Logo not found: %s", e)
-
-    # ===== COLLEGE HEADER REPEAT (Centered) =====
-    elements.append(Paragraph("MALNAD COLLEGE OF ENGINEERING, HASSAN", title_style))
-    elements.append(Paragraph("(An Autonomous Institution Affiliated to VTU, Belgaum)", college_style))
-    elements.append(Paragraph(f"DEPARTMENT OF {branch_name}", college_style))
-    elements.append(Spacer(1, 0.1*inch))
+    # ===== COURSE ARTICULATION MATRIX (continue on same page if possible) =====
+    # Removed forced PageBreak and repeated header; add a minimal spacer so the matrix flows from prior content
+    elements.append(Spacer(1, 0.03*inch))
 
     # ===== COURSE ARTICULATION MATRIX =====
     elements.append(Paragraph("Course Articulation Matrix", section_heading_style))

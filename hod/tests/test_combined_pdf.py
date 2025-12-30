@@ -91,3 +91,51 @@ class CombinedPDFTest(TestCase):
         self.assertIn('Dean course PDFs', content)
         # Latest faculty section should appear
         self.assertIn('Latest faculty-generated PDF per course', content)
+        # The Dean course row should indicate Has File = Yes (we attached dean_course.syllabus_pdf earlier)
+        self.assertIn('DEAN101', content)
+        self.assertIn('Yes', content)
+
+    def test_generate_combined_includes_generated_dean_syllabus(self):
+        """If a dean course has no attached PDF but a textual Syllabus exists, it should be generated and included."""
+        # Create a dean course without a file
+        CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
+        Syllabus = apps.get_model('academics', 'Syllabus')
+        dean_no_file = CollegeLevelCourse.objects.create(
+            course_category='ESC',
+            course_code='DEAN204',
+            course_title='Dean Generated Syllabus',
+            semester=1,
+            admission_year='2025',
+        )
+        # Add a textual syllabus record
+        Syllabus.objects.create(course=dean_no_file, objectives='Objectives here', outcomes='CO1')
+
+        url = reverse('hod:generate_combined_syllabus', args=[self.branch.pk])
+        data = {'year': '2025', 'semester': '1'}
+        resp = self.client.post(url, data)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('application/pdf', resp['Content-Type'])
+        self.assertIn('attachment; filename', resp.get('Content-Disposition', ''))
+
+    def test_generate_combined_includes_generated_faculty_syllabus_when_no_saved_pdf(self):
+        """If a faculty has a textual Syllabus but hasn't generated a saved FacultySyllabusPDF, HOD should generate it on-the-fly and include it."""
+        CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
+        Syllabus = apps.get_model('academics', 'Syllabus')
+
+        # Create a branch-specific course and textual syllabus (no FacultySyllabusPDF saved)
+        branch_course = CollegeLevelCourse.objects.create(
+            course_category='CSE',
+            course_code='CSE202',
+            course_title='Branch Course',
+            semester=1,
+            admission_year='2025',
+            branch=self.branch,
+        )
+        Syllabus.objects.create(course=branch_course, objectives='Obj', outcomes='CO1')
+
+        url = reverse('hod:generate_combined_syllabus', args=[self.branch.pk])
+        data = {'year': '2025', 'semester': '1'}
+        resp = self.client.post(url, data)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('application/pdf', resp['Content-Type'])
+        self.assertIn('attachment; filename', resp.get('Content-Disposition', ''))

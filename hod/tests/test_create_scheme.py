@@ -633,16 +633,16 @@ class CreateSchemeViewTest(TestCase):
             created_by=faculty_user,
             course=self.dean_course,
             title=self.dean_course.course_title,
-            approved=False,
+            approved=True,
             rejected=False
         )
         
-        # Verify it appears in pending submissions
-        pending_qs = FacultySyllabusPDF.objects.filter(
+        # Verify it appears in approved submissions (faculty PDFs are auto-included)
+        approved_qs = FacultySyllabusPDF.objects.filter(
             branch=self.branch,
-            approved=False
+            approved=True
         )
-        self.assertTrue(pending_qs.filter(pk=pdf_obj.pk).exists(), "PDF should appear in pending submissions")
+        self.assertTrue(approved_qs.filter(pk=pdf_obj.pk).exists(), "PDF should appear in approved submissions")
 
     def test_approve_syllabus_moves_to_approved(self):
         """Test that approving a syllabus moves it from pending to approved."""
@@ -667,23 +667,16 @@ class CreateSchemeViewTest(TestCase):
             rejected=False
         )
         
-        # Approve it
+        # Attempt to approve it via the (now-disabled) approve endpoint
         url = reverse('hod:approve_syllabus', args=[pdf_obj.pk])
         response = self.client.post(url, {'action': 'approve'})
-        self.assertEqual(response.status_code, 302)  # Redirect after approval
+        self.assertEqual(response.status_code, 302)  # Redirect back even though approval is disabled
         
-        # Refresh from DB
+        # Refresh from DB - approval flow is disabled, so state should be unchanged
         pdf_obj.refresh_from_db()
-        self.assertTrue(pdf_obj.approved, "PDF should be approved")
-        self.assertFalse(pdf_obj.rejected, "PDF should not be rejected")
-        self.assertEqual(pdf_obj.approved_by, self.hod_user)
-        
-        # Verify it appears in approved submissions, not pending
-        pending_qs = FacultySyllabusPDF.objects.filter(branch=self.branch, approved=False)
-        self.assertFalse(pending_qs.filter(pk=pdf_obj.pk).exists(), "Should not be in pending")
-        
-        approved_qs = FacultySyllabusPDF.objects.filter(branch=self.branch, approved=True)
-        self.assertTrue(approved_qs.filter(pk=pdf_obj.pk).exists(), "Should be in approved")
+        self.assertFalse(pdf_obj.approved, "Approval flow is disabled: should remain unapproved unless saved by faculty as approved")
+        self.assertFalse(pdf_obj.rejected, "Should not be rejected")
+        self.assertIsNone(pdf_obj.approved_by, "No approver should be recorded")
 
     def test_reject_syllabus_stays_in_pending(self):
         """Test that rejecting a syllabus keeps it in pending but marks as rejected."""
@@ -708,27 +701,23 @@ class CreateSchemeViewTest(TestCase):
             rejected=False
         )
         
-        # Reject it
+        # Attempt to reject via the disabled endpoint - should not change state
         url = reverse('hod:approve_syllabus', args=[pdf_obj.pk])
         response = self.client.post(url, {'action': 'reject'})
         self.assertEqual(response.status_code, 302)
         
-        # Refresh from DB
+        # Refresh from DB - should remain unchanged (no rejection recorded)
         pdf_obj.refresh_from_db()
         self.assertFalse(pdf_obj.approved, "PDF should not be approved")
-        self.assertTrue(pdf_obj.rejected, "PDF should be rejected")
-        self.assertEqual(pdf_obj.rejected_by, self.hod_user)
+        self.assertFalse(pdf_obj.rejected, "PDF should not be rejected when approval flow is disabled")
+        self.assertIsNone(pdf_obj.rejected_by, "No rejector should be recorded")
         
-        # Verify it still appears in pending (approved=False) but is marked rejected
-        pending_qs = FacultySyllabusPDF.objects.filter(branch=self.branch, approved=False)
-        self.assertTrue(pending_qs.filter(pk=pdf_obj.pk).exists(), "Should still be in pending")
-        
-        # Verify it can be re-approved
+        # Attempt re-approve - still no change
         response = self.client.post(url, {'action': 'approve'})
         self.assertEqual(response.status_code, 302)
         pdf_obj.refresh_from_db()
-        self.assertTrue(pdf_obj.approved, "Should be approved after re-approval")
-        self.assertFalse(pdf_obj.rejected, "Rejection should be cleared")
+        self.assertFalse(pdf_obj.approved, "Still not approved")
+        self.assertFalse(pdf_obj.rejected, "Still not rejected")
 
     def test_pending_submissions_only_shows_dean_courses(self):
         """Test that pending submissions list only shows dean-provided (CollegeLevelCourse) courses."""
@@ -796,11 +785,8 @@ class CreateSchemeViewTest(TestCase):
         self.assertEqual(response.status_code, 200)
         pending_submissions = response.context.get('pending_submissions', [])
         
-        # Should only show dean course submissions (CollegeLevelCourse)
-        pending_codes = [s.course.course_code for s in pending_submissions if s.course]
-        self.assertIn('23NYP', pending_codes, "Dean course 23NYP should appear")
-        self.assertIn('23RIP', pending_codes, "Dean course 23RIP should appear")
-        self.assertEqual(len(pending_submissions), 2, "Should show exactly 2 dean course submissions")
+        # Pending submissions listing has been removed (no pending/accepting entries are shown)
+        self.assertEqual(pending_submissions, [], "Pending submissions list should be empty as the UI no longer shows pending entries")
 
     def test_view_submission_returns_pdf(self):
         """Test that view_submission returns PDF file response."""
@@ -910,12 +896,8 @@ class CreateSchemeViewTest(TestCase):
         self.assertEqual(response.status_code, 200)
         pending_submissions = response.context.get('pending_submissions', [])
         
-        # Should show only the latest submission (new_submission), not the old one
-        pending_ids = [s.pk for s in pending_submissions]
-        self.assertIn(new_submission.pk, pending_ids, "Latest submission should appear")
-        self.assertNotIn(old_submission.pk, pending_ids, "Older submission should not appear")
-        self.assertEqual(len([s for s in pending_submissions if s.course_id == dean_course.pk]), 1, 
-                        "Should show exactly 1 submission per course")
+        # Pending submissions listing has been removed — the dashboard should not display these entries
+        self.assertEqual(pending_submissions, [], "Pending submissions list should be empty since pending/accepting entries are no longer displayed")
 
     def test_faculty_name_displays_correctly(self):
         """Test that faculty full name displays correctly with username fallback."""
@@ -961,10 +943,10 @@ class CreateSchemeViewTest(TestCase):
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
         
-        # Should display full name
-        self.assertIn("John Doe", content, "Should display faculty full name")
+        # Pending submissions are no longer displayed on the dashboard, so faculty names will not appear here
+        self.assertNotIn("John Doe", content, "Faculty full name should not appear on dashboard after submissions listing is removed")
         
-        # Test with user without full name (should fallback to username)
+        # Test with user without full name (should fallback to username) — still should not appear on dashboard
         faculty_user2 = User.objects.create_user(
             username="faculty_username",
             email="faculty_username@test.com",
@@ -985,7 +967,7 @@ class CreateSchemeViewTest(TestCase):
         
         response2 = self.client.get(url, {'year': '2025', 'semester': '3'})
         content2 = response2.content.decode()
-        self.assertIn("faculty_username", content2, "Should display username when full name not available")
+        self.assertNotIn("faculty_username", content2, "Faculty username should not appear on dashboard after submissions listing is removed")
 
     def test_save_and_download_persists_all_rows_before_pdf(self):
         """Test that Save & Download button persists all rows before generating PDF."""

@@ -118,6 +118,9 @@ def _build_scheme_pdf_bytes(branch, year, semester, main_rows=None, elective_row
     otherwise read from DB (CollegeLevelCourse + SchemeCourse).
     Returns bytes.
     """
+    SCHEME_BASE_FONT = 14
+    HEADING_FONT_SIZE = SCHEME_BASE_FONT
+    BODY_FONT_SIZE = SCHEME_BASE_FONT - 2
     # if branch is an id -> load object
     if isinstance(branch, int):
         try:
@@ -210,43 +213,71 @@ def _build_scheme_pdf_bytes(branch, year, semester, main_rows=None, elective_row
 
     # Build PDF using ReportLab (same sizes & style as original)
     buffer = BytesIO()
+
+    # Small BorderedCanvas so single-page scheme also has a border
+    from reportlab.pdfgen import canvas
+    class BorderedPageCanvas(canvas.Canvas):
+        def __init__(self, *args, **kwargs):
+            canvas.Canvas.__init__(self, *args, **kwargs)
+            self._pagesize = A4
+        def showPage(self):
+            border_margin = 0.06 * inch
+            page_width, page_height = self._pagesize
+            self.setLineWidth(3)
+            self.setStrokeColor(colors.black)
+            self.roundRect(border_margin, border_margin, page_width - (2*border_margin), page_height - (2*border_margin), 12, stroke=1, fill=0)
+            canvas.Canvas.showPage(self)
+
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=0.35*inch, bottomMargin=0.35*inch,
-                            leftMargin=0.45*inch, rightMargin=0.45*inch)
+                            leftMargin=0.35*inch, rightMargin=0.35*inch)
     elements = []
     styles = getSampleStyleSheet()
+
+    # If there is no table content, add a larger top spacer so the header block sits approximately mid-page
+    if not main_rows and not elective_rows:
+        elements.append(Spacer(1, 0.8*inch))
+    else:
+        elements.append(Spacer(1, 0.05*inch))
 
     # Header area (logo + department)
     try:
         logo_path = os.path.join(settings.BASE_DIR, "users", "static", "images", "malnad_college_of_engineering_logo.jpeg")
         if branch and os.path.exists(logo_path):
-            logo = RLImage(logo_path, width=0.6*inch, height=0.6*inch)
+            # slightly larger header logo for better balance
+            logo = RLImage(logo_path, width=1.0*inch, height=1.0*inch)
             header_content = Paragraph(
                 "<b>MALNAD COLLEGE OF ENGINEERING, HASSAN</b><br/>(An Autonomous Institution Affiliated to VTU, Belagavi)<br/>"
                 f"<b>DEPARTMENT OF {branch.name.upper()}</b>",
-                ParagraphStyle('Header', parent=styles['Normal'], fontSize=9, alignment=TA_CENTER, fontName='Helvetica-Bold')
+                ParagraphStyle('Header', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, leading=HEADING_FONT_SIZE+2, alignment=TA_CENTER, fontName='Times-Bold')
             )
-            header_table = Table([[logo, header_content]], colWidths=[0.8*inch, 5.5*inch])
+            header_table = Table([[logo, header_content]], colWidths=[1.2*inch, 4.8*inch])
             header_table.setStyle(TableStyle([('ALIGN',(0,0),(-1,-1),'CENTER'), ('VALIGN',(0,0),(-1,-1),'MIDDLE')]))
             elements.append(header_table)
         else:
             dept = branch.name.upper() if branch else "DEPARTMENT"
             elements.append(Paragraph(f"<b>MALNAD COLLEGE OF ENGINEERING, HASSAN</b><br/><b>DEPARTMENT OF {dept}</b>",
-                                      ParagraphStyle('Header', parent=styles['Normal'], fontSize=10, alignment=TA_CENTER, fontName='Helvetica-Bold')))
+                                      ParagraphStyle('Header', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, leading=HEADING_FONT_SIZE+2, alignment=TA_CENTER, fontName='Times-Bold')))
     except Exception:
         logger.exception("Error while adding header to PDF")
 
-    elements.append(Spacer(1, 0.05*inch))
+    elements.append(Spacer(1, 0.08*inch))
     sem_name = ['','FIRST','SECOND','THIRD','FOURTH','FIFTH','SIXTH','SEVENTH','EIGHTH']
     sem_idx = int(semester) if isinstance(semester, (int, str)) else 0
     elements.append(Paragraph(f"<b>{sem_name[sem_idx] if sem_idx < len(sem_name) else 'SEM'} SEMESTER — {year}</b>",
-                              ParagraphStyle('Semester', parent=styles['Normal'], fontSize=11, alignment=TA_CENTER, fontName='Helvetica-Bold', textColor=colors.HexColor('#008000'))))
+                              ParagraphStyle('Semester', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, leading=HEADING_FONT_SIZE+2, alignment=TA_CENTER, fontName='Times-Bold', textColor=colors.HexColor('#008000'))))
     elements.append(Spacer(1, 0.08*inch))
+
+    # If there is no table content, add extra vertical space so the page looks balanced rather than empty
+    if not main_rows and not elective_rows:
+        elements.append(Spacer(1, 3.0*inch))
+    else:
+        elements.append(Spacer(1, 0.12*inch))
 
     # Main table
     if main_rows:
-        header_style = ParagraphStyle('Header', parent=styles['Normal'], fontSize=6.5, alignment=TA_CENTER, fontName='Helvetica-Bold', leading=8)
-        data_style = ParagraphStyle('Data', parent=styles['Normal'], fontSize=6.5, alignment=TA_CENTER, leading=8)
-        title_style = ParagraphStyle('Title', parent=styles['Normal'], fontSize=6.5, alignment=TA_LEFT, leading=8)
+        header_style = ParagraphStyle('Header', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, alignment=TA_CENTER, fontName='Times-Bold', leading=HEADING_FONT_SIZE+2)
+        data_style = ParagraphStyle('Data', parent=styles['Normal'], fontSize=BODY_FONT_SIZE, alignment=TA_CENTER, leading=BODY_FONT_SIZE+2, fontName='Times-Roman')
+        title_style = ParagraphStyle('Title', parent=styles['Normal'], fontSize=BODY_FONT_SIZE, alignment=TA_LEFT, leading=BODY_FONT_SIZE+2, fontName='Times-Roman')
 
         table_data = [[
             Paragraph('Sl.<br/>No', header_style),
@@ -265,7 +296,6 @@ def _build_scheme_pdf_bytes(branch, year, semester, main_rows=None, elective_row
             Paragraph('Credits', header_style),
             Paragraph('Assign<br/>Faculty', header_style),
         ]]
-
         row_num = 1
         for row in main_rows:
             # ensure numeric conversion safety
@@ -303,11 +333,11 @@ def _build_scheme_pdf_bytes(branch, year, semester, main_rows=None, elective_row
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
             ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
             ('VALIGN', (0, 0), (-1, 0), 'MIDDLE'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 6.5),
-            ('TOPPADDING', (0, 0), (-1, 0), 3),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 3),
-            ('FONTSIZE', (0, 1), (-1, -1), 6.5),
+            ('FONTNAME', (0, 0), (-1, 0), 'Times-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), SCHEME_BASE_FONT-3),
+            ('TOPPADDING', (0, 0), (-1, 0), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 4),
+            ('FONTSIZE', (0, 1), (-1, -1), SCHEME_BASE_FONT-3),
             ('ALIGN', (0, 1), (-1, -1), 'CENTER'),
             ('ALIGN', (3, 1), (3, -1), 'LEFT'),
             ('VALIGN', (0, 1), (-1, -1), 'MIDDLE'),
@@ -315,8 +345,8 @@ def _build_scheme_pdf_bytes(branch, year, semester, main_rows=None, elective_row
             ('BOTTOMPADDING', (0, 1), (-1, -1), 2),
             ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F2F2F2')]),
-            ('LEFTPADDING', (3, 0), (3, -1), 2),
-            ('RIGHTPADDING', (3, 0), (3, -1), 2),
+            ('LEFTPADDING', (3, 0), (3, -1), 4),
+            ('RIGHTPADDING', (3, 0), (3, -1), 4),
         ]))
         elements.append(table)
         elements.append(Spacer(1, 0.15*inch))
@@ -327,7 +357,7 @@ def _build_scheme_pdf_bytes(branch, year, semester, main_rows=None, elective_row
         for row in elective_rows:
             elective_sections.setdefault(row.get('section','ESC'), []).append(row)
 
-        elements.append(Paragraph("<b>Elective/Enhancement Courses</b>", ParagraphStyle('ET', parent=styles['Normal'], fontSize=10, alignment=TA_LEFT, fontName='Helvetica-Bold')))
+        elements.append(Paragraph("<b>Elective/Enhancement Courses</b>", ParagraphStyle('ET', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, alignment=TA_LEFT, fontName='Times-Bold'))) 
         elements.append(Spacer(1, 0.08*inch))
 
         for section in ['PEC','OEC','ESC','AEC']:
@@ -337,10 +367,10 @@ def _build_scheme_pdf_bytes(branch, year, semester, main_rows=None, elective_row
                                 'OEC':'Open Elective Course (OEC)',
                                 'ESC':'Engineering Science Course (ESC)',
                                 'AEC':'Ability Enhancement Course (AEC)'}[section]
-                elements.append(Paragraph(f"<b>{section_name}</b>", ParagraphStyle('SH', parent=styles['Normal'], fontSize=9, alignment=TA_LEFT, fontName='Helvetica-Bold', textColor=colors.HexColor('#4472C4'))))
+                elements.append(Paragraph(f"<b>{section_name}</b>", ParagraphStyle('SH', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, alignment=TA_LEFT, fontName='Times-Bold', textColor=colors.HexColor('#4472C4'))))
                 elements.append(Spacer(1, 0.05*inch))
-                elective_header_style = ParagraphStyle('EH', parent=styles['Normal'], fontSize=7, alignment=TA_CENTER, fontName='Helvetica-Bold')
-                elective_data_style = ParagraphStyle('ED', parent=styles['Normal'], fontSize=6.5, alignment=TA_LEFT)
+                elective_header_style = ParagraphStyle('EH', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, alignment=TA_CENTER, fontName='Times-Bold')
+                elective_data_style = ParagraphStyle('ED', parent=styles['Normal'], fontSize=BODY_FONT_SIZE, alignment=TA_LEFT, fontName='Times-Roman')
                 elective_table_data = [[Paragraph('Course Code', elective_header_style), Paragraph('Course Title', elective_header_style), Paragraph('Assign Faculty', elective_header_style)]]
                 for course in section_courses:
                     elective_table_data.append([Paragraph(course.get('code',''), elective_data_style), Paragraph(course.get('title',''), elective_data_style), Paragraph(course.get('faculty_name',''), elective_data_style)])
@@ -350,8 +380,8 @@ def _build_scheme_pdf_bytes(branch, year, semester, main_rows=None, elective_row
                 elements.append(Spacer(1, 0.1*inch))
 
     elements.append(Spacer(1, 0.05*inch))
-    elements.append(Paragraph(f"Generated on {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}", ParagraphStyle('Footer', parent=styles['Normal'], fontSize=7, alignment=TA_CENTER, fontName='Helvetica-Oblique')))
-    doc.build(elements)
+    elements.append(Paragraph(f"Generated on {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}", ParagraphStyle('Footer', parent=styles['Normal'], fontSize=BODY_FONT_SIZE, alignment=TA_CENTER, fontName='Times-Italic')))
+    doc.build(elements, canvasmaker=BorderedPageCanvas)
     buffer.seek(0)
     return buffer.getvalue()
 
@@ -805,47 +835,13 @@ def view_submission_pdf(request, submission_pk):
 @require_http_methods(["POST"])
 @login_required
 def approve_syllabus(request, submission_pk):
-    """Approve or reject a FacultySyllabusPDF submission."""
+    """Approval flow disabled — HODs no longer approve/reject faculty PDFs. All faculty PDFs are included automatically."""
     try:
-        FacultySyllabusPDF = apps.get_model('hod', 'FacultySyllabusPDF')
-        pdf_obj = get_object_or_404(FacultySyllabusPDF, pk=submission_pk)
-        
-        action = request.POST.get('action', 'approve')  # 'approve' or 'reject'
-        
-        if action == 'approve':
-            pdf_obj.approved = True
-            pdf_obj.rejected = False  # Clear rejection if re-approved
-            pdf_obj.approved_by = request.user
-            pdf_obj.approved_at = timezone.now()
-            pdf_obj.rejected_at = None
-            pdf_obj.rejected_by = None
-            pdf_obj.save()
-            messages.success(request, f"Syllabus approved successfully.")
-        elif action == 'reject':
-            # Mark as rejected and remove from pending
-            pdf_obj.approved = False
-            pdf_obj.rejected = True
-            pdf_obj.rejected_by = request.user
-            pdf_obj.rejected_at = timezone.now()
-            pdf_obj.save()
-            messages.success(request, f"Syllabus rejected.")
-        
-        # Redirect back to dashboard with year/semester if provided
-        branch_pk = pdf_obj.branch.pk if pdf_obj.branch else None
-        if branch_pk:
-            redirect_url = reverse('hod:dashboard_self', args=[branch_pk])
-            if pdf_obj.year:
-                redirect_url += f"?year={pdf_obj.year}"
-            if pdf_obj.semester:
-                redirect_url += f"&semester={pdf_obj.semester}"
-            return redirect(redirect_url)
-        return redirect('hod:dashboard_redirect')
-    except LookupError:
-        messages.error(request, "FacultySyllabusPDF model not found.")
+        messages.info(request, "Approval flow is disabled: faculty-generated PDFs are included automatically.")
         return redirect('hod:dashboard_redirect')
     except Exception as e:
-        logger.exception("Error approving syllabus: %s", e)
-        messages.error(request, f"Failed to approve syllabus: {e}")
+        logger.exception("Error redirecting from disabled approve_syllabus endpoint: %s", e)
+        messages.error(request, "Unable to perform operation.")
         return redirect('hod:dashboard_redirect')
 
 @require_POST
@@ -1451,25 +1447,43 @@ def _build_complete_scheme_pdf(branch, year, semester, main_rows=None, elective_
 
     buffer = BytesIO()
     
+    # Base font size for scheme pages (use Times family)
+    SCHEME_BASE_FONT = 14  # user preference: 12 or 14; using 14 to make content larger
+    HEADING_FONT_SIZE = SCHEME_BASE_FONT
+    BODY_FONT_SIZE = SCHEME_BASE_FONT - 2
+    # Spacing constants for consistent layout
+    HEADING_SPACING = 0.12*inch
+    PARAGRAPH_SPACING = 0.08*inch
+    # Table & border appearance constants
+    TABLE_HEADER_BG = colors.HexColor('#D5D1D1')  # subtle grey header
+    TABLE_ROW_ALTERNATE = [colors.white, colors.HexColor('#F7F7F7')]
+    TABLE_CELL_PADDING = (6, 4)
+    BORDER_STROKE_WIDTH = 1.2
+    BORDER_RADIUS = 8
+    PAGE_MARGIN = 0.25*inch
+
     # ===== CUSTOM CANVAS CLASS FOR BORDERS ON EVERY PAGE =====
     class BorderedPageCanvas(canvas.Canvas):
-        """Canvas that draws green borders on every page"""
+        """Canvas that draws black borders on every page for scheme PDFs"""
         def __init__(self, *args, **kwargs):
             canvas.Canvas.__init__(self, *args, **kwargs)
             self._pagesize = A4
 
         def showPage(self):
-            """Draw border before showing page"""
-            border_margin = 0.2 * inch
+            """Draw rounded border before showing page"""
+            border_margin = 0.06 * inch  # slightly smaller margin for more usable space
             page_width, page_height = self._pagesize
             
-            self.setLineWidth(2)
-            self.setStrokeColor(colors.HexColor("#008000"))  # Green border
-            self.rect(
+            self.setLineWidth(3)
+            self.setStrokeColor(colors.black)
+            # draw rounded rectangle for a refined look
+            radius = 14
+            self.roundRect(
                 border_margin,
                 border_margin,
                 page_width - (2 * border_margin),
                 page_height - (2 * border_margin),
+                radius,
                 stroke=1,
                 fill=0
             )
@@ -1478,11 +1492,13 @@ def _build_complete_scheme_pdf(branch, year, semester, main_rows=None, elective_
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        topMargin=0.5*inch,
-        bottomMargin=0.5*inch,
-        leftMargin=0.6*inch,
-        rightMargin=0.6*inch
+        topMargin=PAGE_MARGIN,
+        bottomMargin=PAGE_MARGIN,
+        leftMargin=PAGE_MARGIN,
+        rightMargin=PAGE_MARGIN
     )
+    # compute usable width for tables
+    available_width = A4[0] - 2 * PAGE_MARGIN - 0.2*inch
     elements = []
     styles = getSampleStyleSheet()
 
@@ -1491,9 +1507,11 @@ def _build_complete_scheme_pdf(branch, year, semester, main_rows=None, elective_
         from reportlab.platypus import Image as RLImage
         logo_path = os.path.join(settings.BASE_DIR, "users", "static", "images", "malnad_college_of_engineering_logo.jpeg")
         if os.path.exists(logo_path):
-            logo = RLImage(logo_path, width=1.2*inch, height=1.2*inch)
-            elements.append(Spacer(1, 0.3*inch))
-            logo_table = Table([[logo]], colWidths=[1.2*inch])
+            # Use a larger logo on the cover and push it lower so the content block centers
+            logo = RLImage(logo_path, width=1.6*inch, height=1.6*inch)
+            # raise top offset so the heading block centers more precisely
+            elements.append(Spacer(1, 1.05*inch))
+            logo_table = Table([[logo]], colWidths=[1.6*inch])
             logo_table.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'CENTER')]))
             elements.append(logo_table)
             elements.append(Spacer(1, 0.2*inch))
@@ -1503,74 +1521,85 @@ def _build_complete_scheme_pdf(branch, year, semester, main_rows=None, elective_
     elements.append(Paragraph(
         "<b>MALNAD COLLEGE OF ENGINEERING, HASSAN</b><br/>"
         "(An Autonomous Institution Affiliated to VTU, Belagavi)",
-        ParagraphStyle('CoverTitle', parent=styles['Normal'], fontSize=12, alignment=TA_CENTER, fontName='Times-Bold')
+        ParagraphStyle('CoverTitle', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, leading=HEADING_FONT_SIZE+2, alignment=TA_CENTER, fontName='Times-Bold')
     ))
-    elements.append(Spacer(1, 0.3*inch))
+    # add a little extra vertical gap so the title doesn't crowd the logo
+    elements.append(Spacer(1, 0.12*inch))
 
     elements.append(Paragraph(
         "<b>Autonomous Programme</b><br/><b>Bachelor of Engineering</b>",
-        ParagraphStyle('Program', parent=styles['Normal'], fontSize=11, alignment=TA_CENTER, fontName='Times-Bold')
+        ParagraphStyle('Program', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, leading=HEADING_FONT_SIZE+2, alignment=TA_CENTER, fontName='Times-Bold')
     ))
-    elements.append(Spacer(1, 0.4*inch))
+    elements.append(Spacer(1, 0.14*inch))
+    # ADDITIONAL GAP: separate Program and Department lines to avoid crowding
+    elements.append(Spacer(1, 0.28*inch))
 
     if branch:
         elements.append(Paragraph(
             f"<b>Department Of<br/>{branch.name.upper()}</b>",
-            ParagraphStyle('Dept', parent=styles['Normal'], fontSize=12, alignment=TA_CENTER, fontName='Times-Bold', textColor=colors.HexColor('#008000'))
+            # add at least 5pt extra leading so department line segments don't collide
+            ParagraphStyle('Dept', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, leading=HEADING_FONT_SIZE+2, alignment=TA_CENTER, fontName='Times-Bold', textColor=colors.HexColor('#008000'))
         ))
-    elements.append(Spacer(1, 0.5*inch))
+        # slightly larger gap after department so the following block shifts down
+        elements.append(Spacer(1, 0.35*inch))
+    # Give more vertical breathing room so the scheme title sits closer to mid-page
+    elements.append(Spacer(1, 0.6*inch))
 
     elements.append(Paragraph(
         f"<b>SCHEME AND SYLLABUS</b><br/><b>(2023 Admitted Batch)</b><br/><br/><b>Academic Year {year}-{year+1}</b>",
-        ParagraphStyle('SchemeInfo', parent=styles['Normal'], fontSize=11, alignment=TA_CENTER, fontName='Times-Bold')
+        ParagraphStyle('SchemeInfo', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, leading=HEADING_FONT_SIZE+4, alignment=TA_CENTER, fontName='Times-Bold')
     ))
-
+    # small gap so the block breathes before page break
+    elements.append(Spacer(1, 1.0*inch))
+    # Force a page break so subsequent content appears on the next page
     elements.append(PageBreak())
-
     # ===== PAGE 2: VISION & MISSION =====
+    # top alignment spacer so the block sits nicely away from the top border
+    elements.append(Spacer(1, 0.45*inch))
     elements.append(Paragraph(
         "<b>VISION OF THE INSTITUTE</b>",
-        ParagraphStyle('SectionTitle', parent=styles['Normal'], fontSize=10, alignment=TA_CENTER, fontName='Times-Bold')
+        ParagraphStyle('SectionTitle', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, leading=HEADING_FONT_SIZE+4, alignment=TA_CENTER, fontName='Times-Bold')
     ))
-    elements.append(Spacer(1, 0.08*inch))
+    elements.append(Spacer(1, HEADING_SPACING))
     elements.append(Paragraph(
         "To be an institute of excellence in engineering education and research, producing socially responsible professionals.",
-        ParagraphStyle('Vision', parent=styles['Normal'], fontSize=9, alignment=TA_JUSTIFY, leading=11, fontName='Times-Roman')
+        ParagraphStyle('Vision', parent=styles['Normal'], fontSize=BODY_FONT_SIZE, alignment=TA_JUSTIFY, leading=BODY_FONT_SIZE+4, fontName='Times-Roman')
     ))
-    elements.append(Spacer(1, 0.15*inch))
+    elements.append(Spacer(1, PARAGRAPH_SPACING))
 
     elements.append(Paragraph(
         "<b>MISSION OF THE INSTITUTE</b>",
-        ParagraphStyle('SectionTitle', parent=styles['Normal'], fontSize=10, alignment=TA_CENTER, fontName='Times-Bold')
+        ParagraphStyle('SectionTitle', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, leading=HEADING_FONT_SIZE+4, alignment=TA_CENTER, fontName='Times-Bold')
     ))
-    elements.append(Spacer(1, 0.08*inch))
+    elements.append(Spacer(1, HEADING_SPACING))
     mission_points = [
         "Create conducive environment for learning and research",
         "Establish industry and academia collaborations",
         "Ensure professional and ethical values in all institutional endeavors"
     ]
     for point in mission_points:
-        elements.append(Paragraph(f"• {point}", ParagraphStyle('MissionPoint', parent=styles['Normal'], fontSize=9, alignment=TA_JUSTIFY, leading=10, fontName='Times-Roman')))
+        elements.append(Paragraph(f"• {point}", ParagraphStyle('MissionPoint', parent=styles['Normal'], fontSize=BODY_FONT_SIZE, alignment=TA_JUSTIFY, leading=BODY_FONT_SIZE+4, fontName='Times-Roman')))
+        elements.append(Spacer(1, PARAGRAPH_SPACING))
     
-    elements.append(Spacer(1, 0.15*inch))
-
+    elements.append(Spacer(1, 0.20*inch))
     if branch:
         elements.append(Paragraph(
             f"<b>VISION OF THE {branch.name.upper()} DEPARTMENT</b>",
-            ParagraphStyle('DeptTitle', parent=styles['Normal'], fontSize=9, alignment=TA_CENTER, fontName='Times-Bold')
+            ParagraphStyle('DeptTitle', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, leading=HEADING_FONT_SIZE+2, alignment=TA_CENTER, fontName='Times-Bold')
         ))
-        elements.append(Spacer(1, 0.08*inch))
+        elements.append(Spacer(1, HEADING_SPACING))
         elements.append(Paragraph(
             "The department will be a premier centre focusing on knowledge dissemination and generation to address the emerging needs of information technology in diverse fields.",
-            ParagraphStyle('DeptVision', parent=styles['Normal'], fontSize=8, alignment=TA_JUSTIFY, leading=10, fontName='Times-Roman')
+            ParagraphStyle('DeptVision', parent=styles['Normal'], fontSize=BODY_FONT_SIZE, alignment=TA_JUSTIFY, leading=BODY_FONT_SIZE+4, fontName='Times-Roman')
         ))
-        elements.append(Spacer(1, 0.12*inch))
+        # a touch more space before the department mission heading
+        elements.append(Spacer(1, PARAGRAPH_SPACING))
 
         elements.append(Paragraph(
             f"<b>MISSION OF THE {branch.name.upper()} DEPARTMENT</b>",
-            ParagraphStyle('DeptMission', parent=styles['Normal'], fontSize=9, alignment=TA_CENTER, fontName='Times-Bold')
+            ParagraphStyle('DeptMission', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, leading=HEADING_FONT_SIZE+2, alignment=TA_CENTER, fontName='Times-Bold')
         ))
-        elements.append(Spacer(1, 0.08*inch))
+        elements.append(Spacer(1, HEADING_SPACING))
         dept_mission = [
             "1. To make students competent to contribute towards the development of IT field.",
             "2. Promote learning and practice of latest tools and technologies among students and prepare them for diverse career options.",
@@ -1579,22 +1608,28 @@ def _build_complete_scheme_pdf(branch, year, semester, main_rows=None, elective_
             "5. Develop software applications to solve engineering and societal problems."
         ]
         for point in dept_mission:
-            elements.append(Paragraph(f"{point}", ParagraphStyle('DeptPoint', parent=styles['Normal'], fontSize=8, alignment=TA_JUSTIFY, leading=10, fontName='Times-Roman')))
+            elements.append(Paragraph(point, ParagraphStyle('DeptPoint', parent=styles['Normal'], fontSize=BODY_FONT_SIZE, alignment=TA_JUSTIFY, leading=BODY_FONT_SIZE+4, fontName='Times-Roman')))
+            elements.append(Spacer(1, PARAGRAPH_SPACING))
 
-    elements.append(PageBreak())
+    # Remove hard page break so PEOs can flow onto the previous (Vision & Mission) page; add a small spacer
+    elements.append(Spacer(1, 0.25*inch))
 
     # ===== PAGE 3: PEOs & POs =====
+
+    # top spacer: reduce so page 3 and page 4 content fit on one page
+    elements.append(Spacer(1, 0.25*inch))
     elements.append(Paragraph(
         "<b>PROGRAM EDUCATIONAL OBJECTIVES (PEOs)</b>",
-        ParagraphStyle('PEOTitle', parent=styles['Normal'], fontSize=10, alignment=TA_CENTER, fontName='Times-Bold')
+        
+        ParagraphStyle('PEOTitle', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, leading=HEADING_FONT_SIZE+4, alignment=TA_CENTER, fontName='Times-Bold')
     ))
-    elements.append(Spacer(1, 0.08*inch))
+    elements.append(Spacer(1, HEADING_SPACING))
     
     elements.append(Paragraph(
         "<b>Graduates will:</b>",
-        ParagraphStyle('GraduatesWill', parent=styles['Normal'], fontSize=9, alignment=TA_LEFT, fontName='Times-Bold')
+        ParagraphStyle('GraduatesWill', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, leading=HEADING_FONT_SIZE+2, alignment=TA_LEFT, fontName='Times-Bold')
     ))
-    elements.append(Spacer(1, 0.05*inch))
+    elements.append(Spacer(1, HEADING_SPACING))
     
     peo_points = [
         "<b>PEO1:</b> Be successful professionals in IT industry with good design, coding and testing skills, capable of assimilating new information and solve new problems.",
@@ -1604,16 +1639,19 @@ def _build_complete_scheme_pdf(branch, year, semester, main_rows=None, elective_
     ]
     
     for point in peo_points:
-        elements.append(Paragraph(point, ParagraphStyle('PEOPoint', parent=styles['Normal'], fontSize=8, alignment=TA_JUSTIFY, leading=10, fontName='Times-Roman')))
-        elements.append(Spacer(1, 0.05*inch))
+        elements.append(Paragraph(point, ParagraphStyle('PEOPoint', parent=styles['Normal'], fontSize=BODY_FONT_SIZE, alignment=TA_JUSTIFY, leading=BODY_FONT_SIZE+4, fontName='Times-Roman')))
+        elements.append(Spacer(1, PARAGRAPH_SPACING))
 
-    elements.append(Spacer(1, 0.1*inch))
+    elements.append(Spacer(1, PARAGRAPH_SPACING))
+    # Start POs on a new page so PEOs remain on the previous page
+    elements.append(PageBreak())
+    elements.append(Spacer(1, 0.25*inch))
     
     elements.append(Paragraph(
         "<b>PROGRAM OUTCOMES (POs)</b>",
-        ParagraphStyle('POTitle', parent=styles['Normal'], fontSize=10, alignment=TA_CENTER, fontName='Times-Bold')
+        ParagraphStyle('POTitle', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, alignment=TA_CENTER, fontName='Times-Bold')
     ))
-    elements.append(Spacer(1, 0.08*inch))
+    elements.append(Spacer(1, HEADING_SPACING))
     
     po_points_page3 = [
         "<b>1. Engineering knowledge:</b> Apply knowledge of mathematics, natural science, computing, engineering fundamentals and an engineering specialization as specified in WK1 to WK4 respectively to develop to the solution of complex engineering problems.",
@@ -1625,17 +1663,12 @@ def _build_complete_scheme_pdf(branch, year, semester, main_rows=None, elective_
     ]
     
     for point in po_points_page3:
-        elements.append(Paragraph(point, ParagraphStyle('POPoint', parent=styles['Normal'], fontSize=7.5, alignment=TA_JUSTIFY, leading=9, fontName='Times-Roman')))
-        elements.append(Spacer(1, 0.04*inch))
+        elements.append(Paragraph(point, ParagraphStyle('POPoint', parent=styles['Normal'], fontSize=SCHEME_BASE_FONT-1, alignment=TA_JUSTIFY, leading=SCHEME_BASE_FONT+1, fontName='Times-Roman')))
+        elements.append(Spacer(1, PARAGRAPH_SPACING))
 
-    elements.append(PageBreak())
 
-    # ===== PAGE 4: POs continued & PSOs =====
-    elements.append(Paragraph(
-        "<b>PROGRAM OUTCOMES (POs) - Continued</b>",
-        ParagraphStyle('POTitle2', parent=styles['Normal'], fontSize=10, alignment=TA_CENTER, fontName='Times-Bold')
-    ))
-    elements.append(Spacer(1, 0.08*inch))
+    # POs continued now flows on the same page as POs above; heading removed
+    elements.append(Spacer(1, PARAGRAPH_SPACING))
     
     po_points_page4 = [
         "<b>7. Environment and sustainability:</b> Understand the impact of the professional engineering solutions in societal and environmental contexts, and demonstrate the knowledge of, and need for sustainable development.",
@@ -1647,20 +1680,20 @@ def _build_complete_scheme_pdf(branch, year, semester, main_rows=None, elective_
     ]
     
     for point in po_points_page4:
-        elements.append(Paragraph(point, ParagraphStyle('POPoint', parent=styles['Normal'], fontSize=7.5, alignment=TA_JUSTIFY, leading=9, fontName='Times-Roman')))
-        elements.append(Spacer(1, 0.04*inch))
+        elements.append(Paragraph(point, ParagraphStyle('POPoint', parent=styles['Normal'], fontSize=BODY_FONT_SIZE, alignment=TA_JUSTIFY, leading=BODY_FONT_SIZE+2, fontName='Times-Roman')))
+        elements.append(Spacer(1, PARAGRAPH_SPACING))
 
     elements.append(Spacer(1, 0.1*inch))
     
     elements.append(Paragraph(
         "<b>PROGRAM SPECIFIC OUTCOMES (PSOs)</b>",
-        ParagraphStyle('PSOTitle', parent=styles['Normal'], fontSize=10, alignment=TA_CENTER, fontName='Times-Bold')
+        ParagraphStyle('PSOTitle', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, alignment=TA_CENTER, fontName='Times-Bold')
     ))
-    elements.append(Spacer(1, 0.08*inch))
+    elements.append(Spacer(1, HEADING_SPACING))
     
     pso_intro = "Upon graduation, students with a degree B.E. in Information Science & Engineering will be able to:"
-    elements.append(Paragraph(pso_intro, ParagraphStyle('PSOIntro', parent=styles['Normal'], fontSize=9, alignment=TA_JUSTIFY, leading=10, fontName='Times-Roman')))
-    elements.append(Spacer(1, 0.08*inch))
+    elements.append(Paragraph(pso_intro, ParagraphStyle('PSOIntro', parent=styles['Normal'], fontSize=BODY_FONT_SIZE, alignment=TA_JUSTIFY, leading=BODY_FONT_SIZE+2, fontName='Times-Roman')))
+    elements.append(Spacer(1, PARAGRAPH_SPACING))
     
     pso_points = [
         "Design and Develop efficient information systems for organizational needs.",
@@ -1668,17 +1701,19 @@ def _build_complete_scheme_pdf(branch, year, semester, main_rows=None, elective_
     ]
     
     for point in pso_points:
-        elements.append(Paragraph(f"• {point}", ParagraphStyle('PSOPoint', parent=styles['Normal'], fontSize=8, alignment=TA_JUSTIFY, leading=10, fontName='Times-Roman')))
-        elements.append(Spacer(1, 0.06*inch))
+        elements.append(Paragraph(f"• {point}", ParagraphStyle('PSOPoint', parent=styles['Normal'], fontSize=BODY_FONT_SIZE, alignment=TA_JUSTIFY, leading=BODY_FONT_SIZE+2, fontName='Times-Roman')))
+        elements.append(Spacer(1, PARAGRAPH_SPACING))
 
     elements.append(PageBreak())
 
     # ===== PAGE 5: SCHEME OF EVALUATION =====
     elements.append(Paragraph(
         "<b>SCHEME OF EVALUATION (THEORY COURSES)</b>",
-        ParagraphStyle('EvalTitle', parent=styles['Normal'], fontSize=11, alignment=TA_CENTER, fontName='Times-Bold')
+        ParagraphStyle('EvalTitle', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, alignment=TA_CENTER, fontName='Times-Bold')
     ))
-    elements.append(Spacer(1, 0.12*inch))
+    elements.append(Spacer(1, HEADING_SPACING))
+
+
 
     theory_eval_data = [
         ['Assessment', 'Marks'],
@@ -1690,24 +1725,29 @@ def _build_complete_scheme_pdf(branch, year, semester, main_rows=None, elective_
         ['Total', '100'],
     ]
     
-    theory_table = Table(theory_eval_data, colWidths=[4.0*inch, 1.5*inch])
+    theory_table = Table(theory_eval_data, colWidths=[available_width*0.7, available_width*0.3])
     theory_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#D3D3D3")),
+        ('BACKGROUND', (0, 0), (-1, 0), TABLE_HEADER_BG),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
         ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
         ('FONTNAME', (0, 0), (-1, 0), 'Times-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 9),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTSIZE', (0, 0), (-1, 0), HEADING_FONT_SIZE),
+        ('GRID', (0, 0), (-1, -1), 0.6, colors.black),
         ('ALIGN', (0, 1), (-1, -1), 'CENTER'),
-        ('FONTSIZE', (0, 1), (-1, -1), 9),
+        ('FONTSIZE', (0, 1), (-1, -1), BODY_FONT_SIZE),
         ('FONTNAME', (0, 1), (-1, -1), 'Times-Roman'),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), TABLE_ROW_ALTERNATE),
+        ('LEFTPADDING', (0,0), (-1,-1), TABLE_CELL_PADDING[0]),
+        ('RIGHTPADDING', (0,0), (-1,-1), TABLE_CELL_PADDING[0]),
+        ('TOPPADDING', (0,0), (-1,-1), TABLE_CELL_PADDING[1]),
+        ('BOTTOMPADDING', (0,0), (-1,-1), TABLE_CELL_PADDING[1]),
     ]))
     elements.append(theory_table)
-    elements.append(Spacer(1, 0.2*inch))
+    elements.append(Spacer(1, PARAGRAPH_SPACING))
 
     elements.append(Paragraph(
         "<b>SCHEME OF EVALUATION (LABORATORY COURSES)</b>",
-        ParagraphStyle('LabEvalTitle', parent=styles['Normal'], fontSize=11, alignment=TA_CENTER, fontName='Times-Bold')
+        ParagraphStyle('LabEvalTitle', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, alignment=TA_CENTER, fontName='Times-Bold')
     ))
     elements.append(Spacer(1, 0.12*inch))
 
@@ -1719,24 +1759,30 @@ def _build_complete_scheme_pdf(branch, year, semester, main_rows=None, elective_
         ['Total', '100'],
     ]
     
-    lab_table = Table(lab_eval_data, colWidths=[4.0*inch, 1.5*inch])
+    lab_table = Table(lab_eval_data, colWidths=[available_width*0.72, available_width*0.28])
     lab_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#D3D3D3")),
+        ('BACKGROUND', (0, 0), (-1, 0), TABLE_HEADER_BG),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
         ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
         ('FONTNAME', (0, 0), (-1, 0), 'Times-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 9),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTSIZE', (0, 0), (-1, 0), HEADING_FONT_SIZE),
+        ('GRID', (0, 0), (-1, -1), 0.6, colors.black),
         ('ALIGN', (0, 1), (-1, -1), 'CENTER'),
-        ('FONTSIZE', (0, 1), (-1, -1), 9),
+        ('FONTSIZE', (0, 1), (-1, -1), BODY_FONT_SIZE),
         ('FONTNAME', (0, 1), (-1, -1), 'Times-Roman'),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), TABLE_ROW_ALTERNATE),
+        ('LEFTPADDING', (0,0), (-1,-1), TABLE_CELL_PADDING[0]),
+        ('RIGHTPADDING', (0,0), (-1,-1), TABLE_CELL_PADDING[0]),
+        ('TOPPADDING', (0,0), (-1,-1), TABLE_CELL_PADDING[1]),
+        ('BOTTOMPADDING', (0,0), (-1,-1), TABLE_CELL_PADDING[1]),
     ]))
     elements.append(lab_table)
-    elements.append(Spacer(1, 0.2*inch))
+    elements.append(Spacer(1, PARAGRAPH_SPACING))
+
 
     elements.append(Paragraph(
         "<b>EXAMINATION DETAILS</b>",
-        ParagraphStyle('ExamTitle', parent=styles['Normal'], fontSize=11, alignment=TA_CENTER, fontName='Times-Bold')
+        ParagraphStyle('ExamTitle', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, alignment=TA_CENTER, fontName='Times-Bold')
     ))
     elements.append(Spacer(1, 0.1*inch))
 
@@ -1746,16 +1792,16 @@ def _build_complete_scheme_pdf(branch, year, semester, main_rows=None, elective_
         ['SEE', '50', '20'],
     ]
     
-    exam_table = Table(exam_data, colWidths=[1.5*inch, 1.5*inch, 2.5*inch])
+    exam_table = Table(exam_data, colWidths=[available_width*0.30, available_width*0.30, available_width*0.40])
     exam_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#D3D3D3")),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
         ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
         ('FONTNAME', (0, 0), (-1, 0), 'Times-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 9),
+        ('FONTSIZE', (0, 0), (-1, 0), HEADING_FONT_SIZE),
         ('GRID', (0, 0), (-1, -1), 1, colors.black),
         ('ALIGN', (0, 1), (-1, -1), 'CENTER'),
-        ('FONTSIZE', (0, 1), (-1, -1), 9),
+        ('FONTSIZE', (0, 1), (-1, -1), BODY_FONT_SIZE),
         ('FONTNAME', (0, 1), (-1, -1), 'Times-Roman'),
     ]))
     elements.append(exam_table)
@@ -1765,7 +1811,7 @@ def _build_complete_scheme_pdf(branch, year, semester, main_rows=None, elective_
     # ===== PAGE 6: COURSE TYPES =====
     elements.append(Paragraph(
         "<b>COURSE TYPES</b>",
-        ParagraphStyle('CourseTypesTitle', parent=styles['Normal'], fontSize=11, alignment=TA_CENTER, fontName='Times-Bold')
+        ParagraphStyle('CourseTypesTitle', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, alignment=TA_CENTER, fontName='Times-Bold')
     ))
     elements.append(Spacer(1, 0.15*inch))
 
@@ -1790,17 +1836,18 @@ def _build_complete_scheme_pdf(branch, year, semester, main_rows=None, elective_
     ct_table_data = [['Course Type', 'Abbreviation']]
     ct_table_data.extend(course_types_data)
     
-    ct_table = Table(ct_table_data, colWidths=[4.2*inch, 1.3*inch])
+    ct_table = Table(ct_table_data, colWidths=[available_width*0.75, available_width*0.25])
     ct_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#8ADBE9")),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('BACKGROUND', (0, 0), (-1, 0), TABLE_HEADER_BG),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
         ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
         ('FONTNAME', (0, 0), (-1, 0), 'Times-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 8),
+        ('FONTSIZE', (0, 0), (-1, 0), HEADING_FONT_SIZE),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
         ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F2F2F2')]),
+        ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
         ('ALIGN', (1, 0), (1, -1), 'CENTER'),
-        ('FONTSIZE', (0, 1), (-1, -1), 7.5),
+        ('FONTSIZE', (0, 1), (-1, -1), BODY_FONT_SIZE),
         ('FONTNAME', (0, 1), (-1, -1), 'Times-Roman'),
     ]))
     elements.append(ct_table)
@@ -1810,14 +1857,15 @@ def _build_complete_scheme_pdf(branch, year, semester, main_rows=None, elective_
     if branch:
         elements.append(Paragraph(
             f"<b>{branch.name.upper()} — SEMESTER {semester} — {year}</b>",
-            ParagraphStyle('SchemeTableTitle', parent=styles['Normal'], fontSize=11, alignment=TA_CENTER, fontName='Times-Bold', textColor=colors.HexColor('#008000'))
+            ParagraphStyle('SchemeTableTitle', parent=styles['Normal'], fontSize=HEADING_FONT_SIZE, leading=HEADING_FONT_SIZE+4, alignment=TA_CENTER, fontName='Times-Bold', textColor=colors.HexColor('#008000'))
         ))
-        elements.append(Spacer(1, 0.12*inch))
+        # increase gap after branch heading so table doesn't sit too close; looks balanced across pages
+        elements.append(Spacer(1, 0.18*inch))
 
         if main_rows:
-            header_style = ParagraphStyle('Header', parent=styles['Normal'], fontSize=6, alignment=TA_CENTER, fontName='Helvetica-Bold', leading=7)
-            data_style = ParagraphStyle('Data', parent=styles['Normal'], fontSize=6, alignment=TA_CENTER, leading=7, fontName='Times-Roman')
-            title_style = ParagraphStyle('Title', parent=styles['Normal'], fontSize=6, alignment=TA_LEFT, leading=7, fontName='Times-Roman')
+            header_style = ParagraphStyle('Header', parent=styles['Normal'], fontSize=11, alignment=TA_CENTER, fontName='Times-Bold', leading=12)
+            data_style = ParagraphStyle('Data', parent=styles['Normal'], fontSize=10, alignment=TA_CENTER, leading=11, fontName='Times-Roman')
+            title_style = ParagraphStyle('Title', parent=styles['Normal'], fontSize=10, alignment=TA_LEFT, leading=11, fontName='Times-Roman')
 
             table_data = [[
                 Paragraph('Sl. No', header_style),
@@ -1865,15 +1913,18 @@ def _build_complete_scheme_pdf(branch, year, semester, main_rows=None, elective_
             col_widths = [0.35*inch, 0.6*inch, 0.65*inch, 1.8*inch, 0.35*inch, 0.35*inch, 0.35*inch, 0.45*inch, 0.35*inch, 0.35*inch, 0.45*inch, 0.45*inch, 0.65*inch]
             scheme_table = Table(table_data, colWidths=col_widths)
             scheme_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#8ADBE9")),
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#D3D3D3")),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
                 ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Times-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 6),
+                ('FONTSIZE', (0, 0), (-1, 0), 11),
                 ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
                 ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F2F2F2')]),
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
                 ('FONTNAME', (0, 1), (-1, -1), 'Times-Roman'),
+                ('FONTSIZE', (0, 1), (-1, -1), 10),
+                ('TOPPADDING', (0, 0), (-1, 0), 6),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
             ]))
             elements.append(scheme_table)
             elements.append(Spacer(1, 0.15*inch))
@@ -1904,12 +1955,12 @@ def _build_complete_scheme_pdf(branch, year, semester, main_rows=None, elective_
                     
                     elements.append(Paragraph(
                         f"<b>{section_name}</b>",
-                        ParagraphStyle('ElectiveSection', parent=styles['Normal'], fontSize=8, alignment=TA_LEFT, fontName='Times-Bold')
+                        ParagraphStyle('ElectiveSection', parent=styles['Normal'], fontSize=SCHEME_BASE_FONT, alignment=TA_LEFT, fontName='Times-Bold')
                     ))
                     elements.append(Spacer(1, 0.07*inch))
 
-                    elec_header_style = ParagraphStyle('EH', parent=styles['Normal'], fontSize=6.5, alignment=TA_CENTER, fontName='Helvetica-Bold')
-                    elec_data_style = ParagraphStyle('ED', parent=styles['Normal'], fontSize=6, alignment=TA_LEFT, fontName='Times-Roman')
+                    elec_header_style = ParagraphStyle('EH', parent=styles['Normal'], fontSize=9, alignment=TA_CENTER, fontName='Times-Bold')
+                    elec_data_style = ParagraphStyle('ED', parent=styles['Normal'], fontSize=9, alignment=TA_LEFT, fontName='Times-Roman')
 
                     elec_table_data = [[Paragraph('Course Code', elec_header_style), Paragraph('Course Title', elec_header_style), Paragraph('Assign Faculty', elec_header_style)]]
                     for course in elective_sections[section]:
@@ -1921,7 +1972,7 @@ def _build_complete_scheme_pdf(branch, year, semester, main_rows=None, elective_
 
                     elec_table = Table(elec_table_data, colWidths=[0.9*inch, 3.2*inch, 1.4*inch])
                     elec_table.setStyle(TableStyle([
-                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#D9E1F2")),
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#D9DBDE")),
                         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
                         ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F9F9F9')]),
                         ('FONTSIZE', (0, 0), (-1, -1), 6),
@@ -1930,10 +1981,10 @@ def _build_complete_scheme_pdf(branch, year, semester, main_rows=None, elective_
                     elements.append(elec_table)
                     elements.append(Spacer(1, 0.1*inch))
 
-    elements.append(Spacer(1, 0.15*inch))
+    elements.append(Spacer(1, 0.12*inch))
     elements.append(Paragraph(
         f"Generated on {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}",
-        ParagraphStyle('Footer', parent=styles['Normal'], fontSize=7, alignment=TA_CENTER, fontName='Times-Italic')
+        ParagraphStyle('Footer', parent=styles['Normal'], fontSize=BODY_FONT_SIZE, alignment=TA_CENTER, fontName='Times-Italic')
     ))
 
     # Build PDF with BorderedPageCanvas
@@ -2141,12 +2192,16 @@ def faculty_assignments_detail(request, branch_pk):
             unique_assignments.append(a)
     assignments = sorted(unique_assignments, key=lambda x: x['course_code'])
 
+    # Faculty submissions listing disabled — do not display pending/accepting entries here.
+    submissions = []
+
     context = {
         'branch': branch,
         'year': year,
         'semester': semester,
         'assignments': assignments,
         'hod_assignment': hod_assignment,
+        'submissions': submissions,
     }
     return render(request, 'hod/faculty_assignments_detail.html', context)
 
@@ -2473,30 +2528,105 @@ def create_combined_syllabus(request, branch_pk):
     except LookupError:
         pass
     
+    # If year/semester not supplied in querystring, default to the latest scheme's year/semester (keeps page consistent)
+    latest_selected_ids = []
+    if not year and latest_scheme:
+        try:
+            year = str(latest_scheme.year)
+        except Exception:
+            pass
+    if not semester and latest_scheme:
+        try:
+            semester = str(latest_scheme.semester)
+        except Exception:
+            pass
+
     # Build latest faculty-generated PDF per course (one latest per course)
+    # Include latest submissions regardless of approval status so HOD can include freshly uploaded PDFs without needing approval.
     latest_faculty_list = []
     dean_courses_with_pdf = []
-    # Only expose faculty-generated PDFs to users who are actual HODs (hide from Dean/staff views)
+    approved_only = True if request.GET.get('approved_only') in ('1', 'true', 'True') else False
     if getattr(request.user, 'hod_assignment', None):
         try:
             FacultySyllabusPDF = apps.get_model('hod', 'FacultySyllabusPDF')
             pdf_qs = FacultySyllabusPDF.objects.filter(branch=branch)
+            # include submissions that explicitly match the selected year/semester OR those where year/semester were left blank
             if year:
-                pdf_qs = pdf_qs.filter(year=str(year))
+                pdf_qs = pdf_qs.filter(Q(year=str(year)) | Q(year__isnull=True) | Q(year=''))
             if semester:
-                pdf_qs = pdf_qs.filter(semester=str(semester))
+                pdf_qs = pdf_qs.filter(Q(semester=str(semester)) | Q(semester__isnull=True) | Q(semester=''))
+            # optionally restrict to approved-only when requested via querystring
+            if approved_only:
+                pdf_qs = pdf_qs.filter(approved=True)
             try:
                 latest_qs = pdf_qs.select_related('course', 'created_by').order_by('course_id', '-created_at')
                 latest_map = {}
                 for p in latest_qs:
                     cid = getattr(p, 'course_id', None)
+                    if not cid:
+                        # Try to resolve common course code patterns from title or filename (e.g., '23IS503_syllabus' or '23IS503_...')
+                        code = None
+                        try:
+                            if p.title and isinstance(p.title, str):
+                                parts = p.title.split('_')
+                                if parts:
+                                    code = parts[0]
+                        except Exception:
+                            code = None
+                        if not code:
+                            try:
+                                if getattr(p, 'pdf_file', None):
+                                    fname = getattr(p.pdf_file, 'name', '') or ''
+                                    fname_parts = os.path.basename(fname).split('_')
+                                    if fname_parts:
+                                        code = fname_parts[0]
+                            except Exception:
+                                pass
+                        if code:
+                            try:
+                                CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
+                                resolved = CollegeLevelCourse.objects.filter(course_code__iexact=code).first()
+                                if resolved:
+                                    cid = f"course_{resolved.pk}"
+                                    # attach resolved object for template display
+                                    setattr(p, 'resolved_course', resolved)
+                                else:
+                                    # Try to resolve against SchemeCourse (branch-specific HOD entries)
+                                    try:
+                                        SchemeCourse = apps.get_model('hod', 'SchemeCourse')
+                                        sc = SchemeCourse.objects.filter(branch=branch, year=year, semester=semester, course_code__iexact=code).first()
+                                        if sc:
+                                            cid = f"scheme_{sc.pk}"
+                                            setattr(p, 'resolved_course', sc)
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+                        # If still unresolved, try to infer from faculty assignments (if the uploader is faculty)
+                        if not code and getattr(p, 'created_by', None):
+                            try:
+                                Faculty = apps.get_model('hod', 'Faculty')
+                                FacultyAssignment = apps.get_model('hod', 'FacultyAssignment')
+                                fac = Faculty.objects.filter(user=p.created_by).first()
+                                if fac:
+                                    fa = FacultyAssignment.objects.filter(faculty=fac).select_related('course_allocation').order_by('-assigned_on').first()
+                                    if fa and getattr(fa, 'course_allocation', None):
+                                        ca = fa.course_allocation
+                                        cid = f"alloc_{ca.pk}"
+                                        setattr(p, 'resolved_course', ca)
+                            except Exception:
+                                pass
                     if cid and cid not in latest_map:
                         latest_map[cid] = p
                 latest_faculty_list = [latest_map[cid] for cid in sorted(latest_map.keys())]
+                # default the selected list to all latest submissions (so Generate merges them by default)
+                latest_selected_ids = [p.pk for p in latest_faculty_list]
             except Exception:
                 latest_faculty_list = []
+                latest_selected_ids = []
         except LookupError:
             latest_faculty_list = []
+            latest_selected_ids = []
 
     # Get dean college-level courses that may have a `syllabus_pdf` file to include
     try:
@@ -2506,9 +2636,12 @@ def create_combined_syllabus(request, branch_pk):
         )
         if semester and hasattr(CollegeLevelCourse, 'semester'):
             try:
-                dean_courses_qs = dean_courses_qs.filter(semester=semester)
+                dean_courses_qs = dean_courses_qs.filter(semester=int(semester))
             except Exception:
-                pass
+                try:
+                    dean_courses_qs = dean_courses_qs.filter(semester=semester)
+                except Exception:
+                    pass
         # strict year/admission_year filter if available
         for year_field in ['admission_year', 'year', 'academic_year']:
             if hasattr(CollegeLevelCourse, year_field) and year not in (None, '', 0):
@@ -2523,9 +2656,35 @@ def create_combined_syllabus(request, branch_pk):
         # Include all dean courses (branch-wide or branch-specific); mark files as present or not in template
         dean_courses = []
         for course in dean_courses_qs.order_by('course_code'):
+            # Annotate whether a usable syllabus PDF is available (attached file or a textual Syllabus we can render)
+            has_doc = False
+            try:
+                pdf_field = getattr(course, 'syllabus_pdf', None)
+                if pdf_field and getattr(pdf_field, 'path', None) and os.path.exists(pdf_field.path):
+                    has_doc = True
+            except Exception:
+                has_doc = False
+
+            try:
+                Syllabus = apps.get_model('academics', 'Syllabus')
+                if Syllabus.objects.filter(course=course, is_deleted=False).exists():
+                    has_doc = True
+            except Exception:
+                pass
+
+            setattr(course, 'has_syllabus', has_doc)
             dean_courses.append(course)
     except LookupError:
         pass
+
+    # Fetch latest previously generated CombinedSyllabus for this branch/year/semester
+    latest_combined = None
+    try:
+        CombinedSyllabus = apps.get_model('hod', 'CombinedSyllabus')
+        if CombinedSyllabus:
+            latest_combined = CombinedSyllabus.objects.filter(branch=branch, year=year, semester=semester).order_by('-created_at').first()
+    except LookupError:
+        latest_combined = None
 
     context = {
         'branch': branch,
@@ -2535,7 +2694,9 @@ def create_combined_syllabus(request, branch_pk):
         'schemes': schemes,
         'latest_scheme': latest_scheme,
         'latest_faculty_list': latest_faculty_list,
+        'latest_selected_ids': latest_selected_ids,
         'dean_courses': dean_courses,
+        'latest_combined': latest_combined,
     }
     return render(request, 'hod/create_combined_syllabus.html', context)
 
@@ -2561,6 +2722,15 @@ def generate_combined_syllabus(request, branch_pk):
         except ImportError:
             messages.error(request, "PyPDF2 library required for PDF merging. Install with: pip install PyPDF2")
             return redirect('hod:create_combined_syllabus', branch_pk=branch_pk)
+
+        # Always ensure BytesIO is available for output buffering and placeholders
+        from io import BytesIO
+
+        # Prefer to use academics' syllabus PDF generator if available
+        try:
+            from academics.views import generate_syllabus_pdf_buffer
+        except Exception:
+            generate_syllabus_pdf_buffer = None
         
         # Merge PDFs using PyPDF2.PdfMerger (preserves POST order)
         try:
@@ -2603,9 +2773,8 @@ def generate_combined_syllabus(request, branch_pk):
             if CollegeLevelCourse:
                 dean_courses_qs = CollegeLevelCourse.objects.filter(
                     department="All Branches",
-                    is_deleted=False,
-                    branch__isnull=True,
-                ).order_by('course_code')
+                    is_deleted=False
+                ).filter(Q(branch__isnull=True) | Q(branch=branch)).order_by('course_code')
                 if semester and hasattr(CollegeLevelCourse, 'semester'):
                     try:
                         dean_courses_qs = dean_courses_qs.filter(semester=semester)
@@ -2652,21 +2821,41 @@ def generate_combined_syllabus(request, branch_pk):
                                 except Exception:
                                     logger.exception("Failed to append placeholder PDF for dean course id %s", course.pk)
                         else:
-                            # No PDF file attached for this dean course — append a small placeholder indicating the course
+                            # No attached PDF; try to generate from a textual Syllabus if available
                             try:
-                                from io import BytesIO
-                                from reportlab.pdfgen import canvas
-                                tmp = BytesIO()
-                                c = canvas.Canvas(tmp)
-                                c.drawString(50, 800, f"Placeholder: no dean course PDF for {getattr(course, 'course_code', 'unknown')} - {getattr(course, 'course_title', '')}")
-                                c.showPage()
-                                c.save()
-                                tmp.seek(0)
-                                merger.append(tmp)
-                                appended_paths.add(f"dean_placeholder_{course.pk}")
-                                logger.info("Appended placeholder for dean course with no file: %s", course.pk)
-                            except Exception:
-                                logger.exception("Failed to append placeholder for dean course id %s", course.pk)
+                                Syllabus = apps.get_model('academics', 'Syllabus')
+                            except LookupError:
+                                Syllabus = None
+
+                            generated = False
+                            if Syllabus and generate_syllabus_pdf_buffer:
+                                try:
+                                    s_obj = Syllabus.objects.filter(course=course, is_deleted=False).order_by('-created_on').first()
+                                    if s_obj:
+                                        pdf_buf = generate_syllabus_pdf_buffer(s_obj)
+                                        pdf_buf.seek(0)
+                                        merger.append(pdf_buf)
+                                        appended_paths.add(f"dean_generated_{course.pk}")
+                                        generated = True
+                                except Exception as e:
+                                    logger.exception("Failed to generate dean syllabus PDF for course id=%s: %s", course.pk, e)
+
+                            if not generated:
+                                # Fallback: append a small placeholder indicating the course
+                                try:
+                                    from io import BytesIO
+                                    from reportlab.pdfgen import canvas
+                                    tmp = BytesIO()
+                                    c = canvas.Canvas(tmp)
+                                    c.drawString(50, 800, f"Placeholder: no dean course PDF for {getattr(course, 'course_code', 'unknown')} - {getattr(course, 'course_title', '')}")
+                                    c.showPage()
+                                    c.save()
+                                    tmp.seek(0)
+                                    merger.append(tmp)
+                                    appended_paths.add(f"dean_placeholder_{course.pk}")
+                                    logger.info("Appended placeholder for dean course with no file: %s", course.pk)
+                                except Exception:
+                                    logger.exception("Failed to append placeholder for dean course id %s", course.pk)
                     except Exception:
                         continue
 
@@ -2678,6 +2867,77 @@ def generate_combined_syllabus(request, branch_pk):
 
             # Add selected latest faculty PDFs (one per course) — allowed only for HOD users
             latest_ids = request.POST.getlist('latest_submissions')
+
+            # If nothing was explicitly selected, default to including the latest per-course PDFs (HOD only)
+            if not latest_ids and FacultySyllabusPDF and getattr(request.user, 'hod_assignment', None):
+                try:
+                    pdf_qs = FacultySyllabusPDF.objects.filter(branch=branch)
+                    # include submissions that match the selected year/semester or where year/semester are blank
+                    if year:
+                        pdf_qs = pdf_qs.filter(Q(year=str(year)) | Q(year__isnull=True) | Q(year=''))
+                    if semester:
+                        pdf_qs = pdf_qs.filter(Q(semester=str(semester)) | Q(semester__isnull=True) | Q(semester=''))
+                    # honor approved_only if passed via form
+                    if request.POST.get('approved_only'):
+                        pdf_qs = pdf_qs.filter(approved=True)
+                    latest_qs = pdf_qs.select_related('course', 'created_by').order_by('course_id', '-created_at')
+                    latest_map = {}
+                    for p in latest_qs:
+                        cid = getattr(p, 'course_id', None)
+                        # If course FK is missing, attempt to resolve by parsing title/filename or faculty assignment
+                        if not cid:
+                            code = None
+                            try:
+                                if p.title and isinstance(p.title, str):
+                                    parts = p.title.split('_')
+                                    if parts:
+                                        code = parts[0]
+                            except Exception:
+                                code = None
+                            if not code:
+                                try:
+                                    if getattr(p, 'pdf_file', None):
+                                        fname = getattr(p.pdf_file, 'name', '') or ''
+                                        fname_parts = os.path.basename(fname).split('_')
+                                        if fname_parts:
+                                            code = fname_parts[0]
+                                except Exception:
+                                    pass
+                            if code:
+                                try:
+                                    CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
+                                    resolved = CollegeLevelCourse.objects.filter(course_code__iexact=code).first()
+                                    if resolved:
+                                        cid = f"course_{resolved.pk}"
+                                    else:
+                                        try:
+                                            SchemeCourse = apps.get_model('hod', 'SchemeCourse')
+                                            sc = SchemeCourse.objects.filter(branch=branch, year=year, semester=semester, course_code__iexact=code).first()
+                                            if sc:
+                                                cid = f"scheme_{sc.pk}"
+                                        except Exception:
+                                            pass
+                                except Exception:
+                                    pass
+                        # As a last resort, infer from faculty assignment
+                        if not cid and getattr(p, 'created_by', None):
+                            try:
+                                Faculty = apps.get_model('hod', 'Faculty')
+                                FacultyAssignment = apps.get_model('hod', 'FacultyAssignment')
+                                fac = Faculty.objects.filter(user=p.created_by).first()
+                                if fac:
+                                    fa = FacultyAssignment.objects.filter(faculty=fac).select_related('course_allocation').order_by('-assigned_on').first()
+                                    if fa and getattr(fa, 'course_allocation', None):
+                                        ca = fa.course_allocation
+                                        cid = f"alloc_{ca.pk}"
+                            except Exception:
+                                pass
+                        if cid and cid not in latest_map:
+                            latest_map[cid] = p
+                    latest_ids = [str(latest_map[cid].pk) for cid in sorted(latest_map.keys())]
+                except Exception:
+                    latest_ids = []
+
             if latest_ids and FacultySyllabusPDF:
                 if not getattr(request.user, 'hod_assignment', None):
                     messages.warning(request, "Only HOD users can include faculty-generated PDFs in the combined syllabus.")
@@ -2711,6 +2971,73 @@ def generate_combined_syllabus(request, branch_pk):
                         except Exception as e:
                             logger.exception("Error adding latest faculty PDF (id=%s): %s", lid, e)
                             messages.warning(request, f"Could not add one latest faculty PDF: {e}")
+
+            # --- FALLBACK: If a textual `Syllabus` exists for a course (even when no saved FacultySyllabusPDF), generate and include it ---
+            try:
+                Syllabus = apps.get_model('academics', 'Syllabus')
+            except LookupError:
+                Syllabus = None
+
+            # for branch-specific scheme courses, try to generate PDFs from textual syllabi when possible
+            try:
+                SchemeCourse = apps.get_model('hod', 'SchemeCourse')
+            except LookupError:
+                SchemeCourse = None
+
+            generated_flag = False
+            if Syllabus and SchemeCourse:
+                try:
+                    sc_qs = SchemeCourse.objects.filter(branch=branch, year=year, semester=semester).select_related('course')
+                    for sc in sc_qs:
+                        try:
+                            course_obj = getattr(sc, 'course', None)
+                            if not course_obj:
+                                # try to find a matching CollegeLevelCourse by code
+                                try:
+                                    CollegeLevelCourse = apps.get_model('academics', 'CollegeLevelCourse')
+                                    course_obj = CollegeLevelCourse.objects.filter(course_code=sc.course_code, branch=branch).first()
+                                except Exception:
+                                    course_obj = None
+
+                            if course_obj:
+                                try:
+                                    s_obj = Syllabus.objects.filter(course=course_obj, is_deleted=False).order_by('-created_on').first()
+                                    if s_obj:
+                                        # generate using available generator
+                                        if generate_syllabus_pdf_buffer:
+                                            try:
+                                                pdf_buf = generate_syllabus_pdf_buffer(s_obj)
+                                                pdf_buf.seek(0)
+                                                merger.append(pdf_buf)
+                                                appended_paths.add(f"generated_syllabus_{course_obj.pk}")
+                                                generated_flag = True
+                                            except Exception as e:
+                                                logger.exception("Failed to generate syllabus PDF for course %s: %s", getattr(course_obj, 'course_code', 'n/a'), e)
+                                except Exception:
+                                    # skip this scheme course on error
+                                    continue
+                        except Exception:
+                            continue
+                except Exception:
+                    pass
+
+            # If nothing appended yet, try a final best-effort: generate from any Syllabus for this branch/year/semester
+            if not appended_paths and Syllabus:
+                try:
+                    # try to find any Syllabus with a course linked to this branch
+                    possible = Syllabus.objects.filter(course__branch=branch, is_deleted=False).order_by('-created_on')[:10]
+                    for s_obj in possible:
+                        if generate_syllabus_pdf_buffer:
+                            try:
+                                pdf_buf = generate_syllabus_pdf_buffer(s_obj)
+                                pdf_buf.seek(0)
+                                merger.append(pdf_buf)
+                                appended_paths.add(f"generated_syllabus_any_{getattr(s_obj.course, 'pk', 'na')}")
+                                generated_flag = True
+                            except Exception as e:
+                                logger.exception("Failed to append generated syllabus (fallback): %s", e)
+                except Exception:
+                    pass
             
             # Create output buffer
             # Ensure we actually appended something
@@ -2731,6 +3058,30 @@ def generate_combined_syllabus(request, branch_pk):
                 filename='Combined_Syllabus.pdf'
             )
             response['Content-Disposition'] = 'attachment; filename="Combined_Syllabus.pdf"'
+
+            # Save a copy of the combined PDF as a CombinedSyllabus record for future viewing
+            try:
+                from django.core.files.base import ContentFile
+                CombinedSyllabus = apps.get_model('hod', 'CombinedSyllabus')
+                if CombinedSyllabus:
+                    cs_name = f"Combined_Syllabus_{getattr(branch, 'code', 'branch')}_{year}_Sem{semester}.pdf"
+                    try:
+                        cs = CombinedSyllabus.objects.create(
+                            name=cs_name,
+                            created_by=request.user if hasattr(request, 'user') else None,
+                            branch=branch,
+                            year=year,
+                            semester=semester
+                        )
+                        # write the buffer bytes to the FileField
+                        cs.file.save(cs_name, ContentFile(output_buffer.getvalue()))
+                        cs.save()
+                    except Exception as e:
+                        logger.exception("Failed to save CombinedSyllabus record: %s", e)
+            except Exception:
+                # non-fatal: continue returning the response even if saving fails
+                logger.exception("Error while attempting to save CombinedSyllabus file.")
+
             return response
             
         except Exception as e:
@@ -3010,13 +3361,19 @@ def create_scheme(request, branch_pk, year, semester):
                     except Exception:
                         pass
             # Filter by admission_year if model supports it (STRICT match when year provided)
+            from django.db.models import Q
             for year_field in ['admission_year', 'year', 'academic_year']:
                 if hasattr(Course, year_field) and year not in (None, '', 0):
+                    # Include courses that explicitly match the requested year OR have no year set (backwards compatibility)
                     try:
-                        dean_qs = dean_qs.filter(**{year_field: int(year)})
+                        int_year = int(year)
+                    except Exception:
+                        int_year = year
+                    try:
+                        dean_qs = dean_qs.filter(Q(**{year_field: int_year}) | Q(**{f"{year_field}__isnull": True}))
                     except Exception:
                         try:
-                            dean_qs = dean_qs.filter(**{year_field: year})
+                            dean_qs = dean_qs.filter(Q(**{year_field: year}) | Q(**{f"{year_field}__isnull": True}))
                         except Exception:
                             pass
                     break

@@ -22,6 +22,9 @@
 </head>
 <body>
   <div class="card">
+    <div style="margin-bottom:8px;">
+      <a href="javascript:history.back()" class="link-action">← Back to hod dashboard</a>
+    </div>
     <h2>Assigned Faculty & Submissions — {{ branch.name }}</h2>
     {% if year and semester %}
       <p class="section-subtitle">Showing assignments for Year {{ year }}, Semester {{ semester }}</p>
@@ -59,38 +62,9 @@
 {% endif %}
 
 
-    <!-- Faculty Syllabi Section -->
-    <h3 style="margin-top:24px;margin-bottom:12px;">Faculty Syllabi (All)</h3>
-    {% if submissions %}
-      <table>
-        <thead>
-          <tr>
-            <th>Course</th>
-            <th>Faculty</th>
-            <th>Status</th>
-            <th>Submitted On</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for submission in submissions %}
-            <tr>
-              <td>{{ submission.course.course_code }} — {{ submission.course.course_title }}</td>
-              <td>{{ submission.faculty.get_full_name|default:submission.faculty.username }}</td>
-              <td>{{ submission.status|default:"PENDING" }}</td>
-              <td>{{ submission.submitted_at|date:"d M Y" }}</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <p class="empty-state">No syllabus submissions found.</p>
-    {% endif %}
+    <!-- Faculty submissions listing removed (pending/rejected submissions are no longer displayed here). -->
 
-    <!-- Action Buttons -->
-    <div style="margin-top:20px;">
-      <a href="{% url 'hod:dashboard_self' branch.pk %}" class="btn btn-secondary">Back to Dashboard</a>
-      <a href="{% url 'hod:generate_full_pdf' branch.pk %}" class="btn" style="margin-left:8px;">Create Combined Syllabus (Approved only)</a>
-    </div>
+
   </div>
 </body>
 </html>

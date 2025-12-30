@@ -21,28 +21,32 @@
 </head>
 <body>
   <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-      <div>
-        <h1>Create Combined Syllabus</h1>
-        {% if year and semester %}
-          <div class="section-subtitle">Showing options for Year {{ year }}, Semester {{ semester }}</div>
-        {% else %}
-          <div class="section-subtitle">Select items to include in the merged PDF</div>
-        {% endif %}
-      </div>
-      <div>
-        {% if branch %}
-          <a href="{% url 'hod:dashboard_self' branch.pk %}" class="btn btn-secondary">&larr; Back</a>
-        {% else %}
-          <a href="{% url 'hod:dashboard_redirect' %}" class="btn btn-secondary">&larr; Back</a>
-        {% endif %}
-      </div>
+    <div style="margin-bottom:8px;">
+      <a href="javascript:history.back()" style="color:#0a3b66;text-decoration:none;font-weight:600;">&larr; Back to hod dashboard</a>
+      {% if latest_combined and latest_combined.file %}
+        <a href="{{ latest_combined.file.url }}" target="_blank" style="margin-left:18px;color:#0a3b66;text-decoration:underline;font-weight:600;">View latest combined PDF</a>
+      {% endif %}
+    </div>
+
+    <div style="margin-bottom:12px;">
+      <h1>Create Combined Syllabus</h1>
+      {% if year and semester %}
+        <div class="section-subtitle">Showing options for Year {{ year }}, Semester {{ semester }}</div>
+      {% else %}
+        <div class="section-subtitle">Select items to include in the merged PDF</div>
+      {% endif %}
+    </div>
+
+
     </div>
 
     <form method="post" action="{% if branch %}{% url 'hod:generate_combined_syllabus' branch.pk %}{% elif branch_pk %}{% url 'hod:generate_combined_syllabus' branch_pk %}{% else %}{{ request.path }}{% endif %}">
       {% csrf_token %}
       <input type="hidden" name="year" value="{{ year }}">
       <input type="hidden" name="semester" value="{{ semester }}">
+      {% if request.GET.approved_only %}
+        <input type="hidden" name="approved_only" value="1">
+      {% endif %}
 
       <h3 style="margin-top:12px;">HOD scheme (included)</h3>
       <div class="muted">The latest HOD scheme for the selected year/semester will be included automatically.</div>
@@ -67,7 +71,7 @@
               <tr>
                 <td style="font-weight:700">{{ course.course_code }}</td>
                 <td>{{ course.course_title }}</td>
-                <td>{% if course.syllabus_pdf and course.syllabus_pdf.name %}Yes{% else %}No{% endif %}</td>
+                <td>{% if course.has_syllabus %}Yes{% else %}No{% endif %}</td>
               </tr>
             {% endfor %}
           </tbody>
@@ -79,20 +83,39 @@
       <h3 style="margin-top:18px;">Latest faculty-generated PDF per course</h3>
       <div class="muted">Prefer the most recent faculty submission for each course when available.</div>
       {% if latest_faculty_list %}
-        <div style="margin:8px 0 12px;"><button type="button" class="btn" onclick="toggleAllLatest()">Select/Unselect All</button></div>
         <table>
           <thead>
-            <tr><th>Include</th><th>Course</th><th>Submitted By</th><th>Submitted On</th><th>Approved</th></tr>
+            <tr><th>Course</th><th>Submitted By</th><th>Submitted On</th></tr>
           </thead>
           <tbody>
             {% for p in latest_faculty_list %}
               <tr>
-                <td><input type="checkbox" name="latest_submissions" value="{{ p.pk }}"></td>
-                <td style="font-weight:700">{{ p.course.course_code }} — {{ p.course.course_title }}</td>
+                <td style="font-weight:700">
+                  {# Prefer explicit FK if present #}
+                  {% if p.course %}
+                    {{ p.course.course_code }} — {{ p.course.course_title }}
+                  {% elif p.resolved_course %}
+                    {# _resolved_course may be CollegeLevelCourse or SchemeCourse #}
+                    {{ p.resolved_course.course_code }} — {{ p.resolved_course.course_title|default:'' }}
+                  {% else %}
+                    {# Fallback: try to show code derived from title or filename #}
+                    {% with title=p.title|default:'' %}
+                      {% if title %}
+                        {% firstof title "(unknown course)" %}
+                      {% else %}
+                        {% if p.pdf_file %}
+                          {{ p.pdf_file.name|slice:":20" }}
+                        {% else %}
+                          (unknown course)
+                        {% endif %}
+                      {% endif %}
+                    {% endwith %}
+                  {% endif %}
+                </td>
                 <td>{% if p.created_by %}{{ p.created_by.get_full_name|default:p.created_by.username }}{% else %}Unknown{% endif %}</td>
                 <td>{{ p.created_at|date:"d M Y, g:i a" }}</td>
-                <td>{% if p.approved %}Yes{% else %}No{% endif %}</td>
               </tr>
+              <input type="hidden" name="latest_submissions" value="{{ p.pk }}">
             {% endfor %}
           </tbody>
         </table>
@@ -101,19 +124,12 @@
       {% endif %}
 
       <div style="margin-top:18px;text-align:right;">
-        <button class="btn btn-secondary" type="button" onclick="location.href='{% if branch %}{% url 'hod:dashboard_self' branch.pk %}{% else %}{% url 'hod:dashboard_redirect' %}{% endif %}'">Back</button>
         <button class="btn" type="submit" style="margin-left:8px;">Generate Combined PDF</button>
       </div>
 
     </form>
   </div>
 
-  <script>
-    function toggleAllLatest() {
-      const cbs = document.querySelectorAll('input[name="latest_submissions"]');
-      const any = Array.from(cbs).some(c => c.checked);
-      cbs.forEach(c=>c.checked = !any);
-    }
-  </script>
+
 </body>
 </html>
